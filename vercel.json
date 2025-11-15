@@ -2,6 +2,13 @@
   "buildCommand": "next build",
   "outputDirectory": ".next",
   "framework": "nextjs",
+  "env": {
+    "MONGODB_URI": "@mongodb_uri",
+    "MONGODB_DB": "@mongodb_db",
+    "OPENAI_API_KEY": "@openai_api_key",
+    "EMBEDDING_MODEL": "@embedding_model",
+    "EMBEDDING_DIM": "@embedding_dim"
+  },
   "functions": {
     "app/api/**/*.ts": {
       "maxDuration": 30
