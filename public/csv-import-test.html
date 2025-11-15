@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CSV 資料匯入測試</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        select, textarea {
+            width: 100%;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        textarea {
+            min-height: 200px;
+            font-family: 'Courier New', monospace;
+            resize: vertical;
+        }
+        button {
+            background-color: #00ED64;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 4px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        button:hover {
+            background-color: #00d45a;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .success {
+            background-color: #e8f5e8;
+            border: 1px solid #4caf50;
+            color: #2e7d32;
+        }
+        .error {
+            background-color: #ffebee;
+            border: 1px solid #f44336;
+            color: #c62828;
+        }
+        .sample-csv {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗂️ CSV 資料匯入測試工具</h1>
+        
+        <div class="form-group">
+            <label for="importType">匯入類型：</label>
+            <select id="importType">
+                <option value="bible_characters">聖經人物資料</option>
+                <option value="users">用戶資料</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label for="csvContent">CSV 內容：</label>
+            <textarea id="csvContent" placeholder="貼上您的CSV資料...">CharacterName,ChineseName,CharacterID,StoryBook,CoreTraitsEN,CoreTraitsCN,CoreValuesEN,CoreValuesCN,BehaviorPatternEN,BehaviorPatternCN,LifeSummaryEN,LifeSummaryCN,KeyEventsEN,KeyEventsCN,RelationshipsEN,RelationshipsCN,MainChallengesEN,MainChallengesCN,ResponseToChallengesEN,ResponseToChallengesCN,LifeLessonsEN,LifeLessonsCN,ApplicationTagsEN,ApplicationTagsCN
+Abraham,亞伯拉罕,ABR001,Genesis,Faithful;Obedient;Courageous,信心堅定;順服;勇敢,Faith and obedience in God;Trust in God's promises,對神的信心與順服;相信神的應許,Immediately obey God's commands;Build altars to worship,立即遵從神的命令;築壇敬拜神,"Abraham was called by God to leave his homeland and go to the place God would show him. He experienced covenant with God, the birth of Isaac, and offering Isaac, becoming the father of faith.",亞伯拉罕被神呼召離開本地本族，前往神所指示的地方。他經歷了與神立約、生子以撒、獻上以撒等重大事件，被稱為信心之父。,"Called to leave Haran;Covenant with God;Sojourn in Egypt;Parting with Lot;Rescue of Lot;Birth of Isaac;Offering of Isaac","離開哈蘭前往迦南地;與神立約得應許;埃及寄居;與羅得分離;營救羅得;與神立約生以撒;獻上以撒","Sarah (wife);Lot (nephew);Isaac (son);Ishmael (son)",妻子撒拉;侄兒羅得;兒子以撒;以實瑪利,"Fear of leaving familiar places;Frustration of childlessness;Test of offering only son",離開熟悉環境的恐懼;多年無子的挫折;獻獨生子的考驗,"Step out in faith on unknown journey;Continue believing in God's promises;Fully obey God's commands",憑信心踏上未知旅程;持續相信神的應許;完全順服神的命令,"Faith requires action;God's promises fulfilled in His timing;Complete obedience brings blessing",信心需要行動證明;神的應許雖遲但必成就;完全順服帶來神的祝福,"Faith model;Covenant witness;Obedience example","信心典範;立約見證;順服榜樣"</textarea>
+        </div>
+
+        <button id="importBtn" onclick="importCSV()">📤 匯入資料</button>
+
+        <div id="result" class="result" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function importCSV() {
+            const importType = document.getElementById('importType').value;
+            const csvContent = document.getElementById('csvContent').value;
+            const importBtn = document.getElementById('importBtn');
+            const result = document.getElementById('result');
+
+            if (!csvContent.trim()) {
+                showResult('請輸入CSV內容', 'error');
+                return;
+            }
+
+            importBtn.disabled = true;
+            importBtn.textContent = '🔄 匯入中...';
+
+            try {
+                const response = await fetch('/api/admin/import-csv', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        csvContent: csvContent,
+                        type: importType
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.ok) {
+                    showResult(`✅ ${data.message}`, 'success');
+                    console.log('匯入詳情:', data.details);
+                } else {
+                    showResult(`❌ 錯誤: ${data.error}`, 'error');
+                }
+            } catch (error) {
+                showResult(`❌ 網路錯誤: ${error.message}`, 'error');
+            } finally {
+                importBtn.disabled = false;
+                importBtn.textContent = '📤 匯入資料';
+            }
+        }
+
+        function showResult(message, type) {
+            const result = document.getElementById('result');
+            result.textContent = message;
+            result.className = `result ${type}`;
+            result.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

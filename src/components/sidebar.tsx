@@ -1,21 +1,44 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { listPersonas } from "@/utils/api";
-import { Search, Bot, MessageSquare, Settings, Users, ChevronRight } from "lucide-react";
+import { Search, Bot, MessageSquare, Settings, Users, ChevronRight, LogIn, LogOut, User, Pin, X } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import AuthModal from "./auth-modal";
 
 type Persona = {
   id: string;
   name: string;
+  story?: string;
+  traits?: string[];
+  beliefs?: string[];
 };
 
-export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: string) => void }) {
+export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: string, name: string) => void }) {
   const [q, setQ] = useState("");
   const [items, setItems] = useState<Persona[]>([]);
   const [active, setActive] = useState<string | null>(null);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const { user, isAuthenticated, logout, refreshMe } = useAuth();
+  const [hovered, setHovered] = useState<{ id: string; top: number; left: number } | null>(null);
+  const hideTimer = useRef<number | null>(null);
+  const [pinned, setPinned] = useState<{ id: string; top: number; left: number } | null>(null);
 
   useEffect(() => {
-    listPersonas().then(r => setItems(r.personas.map(p => ({ id: String(p.id), name: String(p.name) })))).catch(() => setItems([]));
-  }, []);
+    listPersonas()
+      .then(r =>
+        setItems(
+          r.personas.map(p => ({
+            id: String(p.id),
+            name: String(p.name),
+            story: typeof p.story === "string" ? p.story : "",
+            traits: Array.isArray(p.traits) ? p.traits.map((t: any) => String(t)) : [],
+            beliefs: Array.isArray(p.beliefs) ? p.beliefs.map((b: any) => String(b)) : [],
+          }))
+        )
+      )
+      .catch(() => setItems([]));
+    refreshMe();
+  }, [refreshMe]);
 
   const filtered = useMemo(() => {
     if (!q) return items;
@@ -23,11 +46,22 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
     return items.filter(i => i.name.toLowerCase().includes(s));
   }, [q, items]);
 
+  const hoveredPersona = useMemo(() => {
+    const target = pinned || hovered;
+    if (!target) return null;
+    return items.find(i => i.id === target.id) || null;
+  }, [hovered, pinned, items]);
+
+  const selected = useMemo(() => {
+    if (!active) return null;
+    return items.find(i => i.id === active) || null;
+  }, [active, items]);
+
   return (
     <aside className="flex h-screen w-[300px] flex-col gap-4 border-r border-black/10 bg-black text-zinc-200">
       <div className="flex items-center gap-2 px-4 pt-4 text-lg font-semibold">
         <Bot size={20} />
-        <span>Persona Chat</span>
+        <span>Bible Persona Chat</span>
       </div>
       <div className="px-4">
         <div className="flex items-center gap-2 rounded-md bg-zinc-900 px-3 py-2 ring-1 ring-white/10">
@@ -50,12 +84,38 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
       <div className="flex-1 overflow-y-auto px-2">
         <ul className="flex flex-col">
           {filtered.map(p => (
-            <li key={p.id}>
+            <li
+              key={p.id}
+              className="relative"
+              onMouseEnter={e => {
+                if (hideTimer.current) {
+                  clearTimeout(hideTimer.current);
+                  hideTimer.current = null;
+                }
+                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                const gap = 12;
+                const panelW = 420;
+                const panelH = 480;
+                const margin = 16;
+                const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
+                const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+                const left = Math.min(vw - panelW - margin, r.right + gap);
+                const top = Math.min(Math.max(margin, r.top), vh - panelH - margin);
+                setHovered({ id: p.id, top, left });
+              }}
+              onMouseLeave={() => {
+                if (hideTimer.current) clearTimeout(hideTimer.current);
+                hideTimer.current = window.setTimeout(() => {
+                  if (!pinned) setHovered(prev => (prev?.id === p.id ? null : prev));
+                  hideTimer.current = null;
+                }, 500);
+              }}
+            >
               <button
                 aria-label={`Select ${p.name}`}
                 onClick={() => {
                   setActive(p.id);
-                  onSelectPersona(p.id);
+                  onSelectPersona(p.id, p.name);
                 }}
                 className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left hover:bg-zinc-900 ${active === p.id ? "bg-zinc-900" : ""}`}
               >
@@ -69,6 +129,110 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
           )}
         </ul>
       </div>
+      
+      {/* 用戶登入區域 */}
+      <div className="border-t border-zinc-800 p-4">
+        {isAuthenticated ? (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm text-zinc-300">
+              <User size={16} />
+              <span>{user?.name}</span>
+            </div>
+            <button
+              onClick={logout}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
+            >
+              <LogOut size={16} />
+              <span>登出</span>
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setShowAuthModal(true)}
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
+          >
+            <LogIn size={16} />
+            <span>登入 / 註冊</span>
+          </button>
+        )}
+      </div>
+
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
+
+      {hoveredPersona && (pinned || hovered) && (
+        <div
+          className="fixed z-50 w-[420px] h-[480px] overflow-hidden rounded-lg border border-white/10 bg-zinc-900 shadow-xl"
+          style={{ top: (pinned || hovered)!.top, left: (pinned || hovered)!.left }}
+          onMouseEnter={() => {
+            if (hideTimer.current) {
+              clearTimeout(hideTimer.current);
+              hideTimer.current = null;
+            }
+          }}
+          onMouseLeave={() => {
+            if (hideTimer.current) clearTimeout(hideTimer.current);
+            hideTimer.current = window.setTimeout(() => {
+              if (!pinned) setHovered(null);
+              hideTimer.current = null;
+            }, 800);
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+            <div className="text-sm font-semibold">{hoveredPersona.name}</div>
+            <div className="flex items-center gap-1">
+              <button
+                aria-label="Pin"
+                onClick={() => {
+                  const pos = pinned || hovered;
+                  if (!pos) return;
+                  setPinned(prev => (prev ? null : pos));
+                }}
+                className={`rounded p-1 ${pinned ? "bg-zinc-800" : "hover:bg-zinc-800"}`}
+              >
+                <Pin size={14} className="text-zinc-400" />
+              </button>
+              <button
+                aria-label="Close"
+                onClick={() => {
+                  setPinned(null);
+                  setHovered(null);
+                }}
+                className="rounded p-1 hover:bg-zinc-800"
+              >
+                <X size={14} className="text-zinc-400" />
+              </button>
+            </div>
+          </div>
+          <div className="h-[440px] overflow-y-auto p-3">
+            <div className="mt-2 text-xs whitespace-pre-line text-zinc-300">
+              {hoveredPersona.story && hoveredPersona.story.trim().length > 0 ? hoveredPersona.story : "無詳細資料"}
+            </div>
+            {!!(hoveredPersona.traits && hoveredPersona.traits.length) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">Traits</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {hoveredPersona.traits.slice(0, 24).map(t => (
+                    <span key={t} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(hoveredPersona.beliefs && hoveredPersona.beliefs.length) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">Beliefs</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {hoveredPersona.beliefs.slice(0, 24).map(b => (
+                    <span key={b} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{b}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
