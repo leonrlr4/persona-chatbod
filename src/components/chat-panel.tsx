@@ -18,23 +18,32 @@ export default function ChatPanel({ personaId }: { personaId: string | null }) {
     if (!text) return;
     setInput("");
     setMessages(m => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
-    const res = await fetch("/api/chat/stream", {
+    
+    // 使用Hugging Face API
+    const res = await fetch("/api/chat/hf", {
       method: "POST",
       body: JSON.stringify({ personaId, text }),
       headers: { "content-type": "application/json" },
     });
-    if (!res.body) return;
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value);
+    
+    if (!res.ok) {
       setMessages(m => {
-        const last = m[m.length - 1];
-        if (!last || last.role !== "assistant") return m;
         const copy = m.slice(0, -1);
-        return [...copy, { ...last, content: last.content + chunk }];
+        return [...copy, { role: "assistant", content: "抱歉，發生錯誤。請稍後再試。" }];
+      });
+      return;
+    }
+    
+    const data = await res.json();
+    if (data.ok && data.response) {
+      setMessages(m => {
+        const copy = m.slice(0, -1);
+        return [...copy, { role: "assistant", content: data.response }];
+      });
+    } else {
+      setMessages(m => {
+        const copy = m.slice(0, -1);
+        return [...copy, { role: "assistant", content: "抱歉，我無法生成回應。" }];
       });
     }
   }
@@ -42,7 +51,6 @@ export default function ChatPanel({ personaId }: { personaId: string | null }) {
   return (
     <div className="flex h-screen flex-1 flex-col bg-gradient-to-br from-zinc-900 to-zinc-950 text-zinc-100">
       <header className="flex items-center justify-between px-6 py-4">
-        <div className="text-sm">{personaId ? `Persona: ${personaId}` : "選擇人物後開始對話"}</div>
         <div className="rounded-md bg-zinc-800 px-3 py-1 text-xs">Beta</div>
       </header>
       <div ref={listRef} className="flex-1 overflow-y-auto px-6">
