@@ -1,3 +1,4 @@
+"use client";
 import Link from 'next/link';
 
 export default function TestToolsPage() {
@@ -41,8 +42,9 @@ export default function TestToolsPage() {
                   const response = await fetch('/api/health');
                   const data = await response.json();
                   alert(data.ok ? '✅ API正常' : `❌ API錯誤: ${data.error}`);
-                } catch (error) {
-                  alert(`❌ 連接失敗: ${error.message}`);
+                } catch (error: unknown) {
+                  const msg = error instanceof Error ? error.message : String(error);
+                  alert(`❌ 連接失敗: ${msg}`);
                 }
               }}
               className="bg-purple-500 hover:bg-purple-600 text-white px-4 py-2 rounded-md transition-colors"
@@ -65,8 +67,9 @@ export default function TestToolsPage() {
                   } else {
                     alert(`❌ 錯誤: ${data.error}`);
                   }
-                } catch (error) {
-                  alert(`❌ 連接失敗: ${error.message}`);
+                } catch (error: unknown) {
+                  const msg = error instanceof Error ? error.message : String(error);
+                  alert(`❌ 連接失敗: ${msg}`);
                 }
               }}
               className="bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-md transition-colors"

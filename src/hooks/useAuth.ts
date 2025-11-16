@@ -13,11 +13,13 @@ interface AuthState {
   isAuthenticated: boolean;
   csrfToken: string | null;
   lastError: string | null;
+  shouldPromptLogin: boolean;
   fetchCsrf: () => Promise<void>;
-  login: (identifier: string, password: string, remember?: boolean) => Promise<boolean>;
+  login: (email: string, password: string, remember?: boolean) => Promise<boolean>;
   register: (name: string, email: string, password: string) => Promise<boolean>;
   logout: () => Promise<void>;
   refreshMe: () => Promise<void>;
+  ackPromptLogin: () => void;
 }
 
 export const useAuth = create<AuthState>((set, get) => ({
@@ -25,18 +27,20 @@ export const useAuth = create<AuthState>((set, get) => ({
   isAuthenticated: false,
   csrfToken: null,
   lastError: null,
+  shouldPromptLogin: false,
   
   fetchCsrf: async () => {
     const res = await fetchJSON<{ ok: boolean; token: string }>("/api/auth/csrf");
     set({ csrfToken: res.token });
   },
 
-  login: async (identifier: string, password: string, remember = false) => {
+  login: async (email: string, password: string, remember = false) => {
     try {
+      set({ lastError: null });
       if (!get().csrfToken) await get().fetchCsrf();
       const res = await fetchJSON<{ ok: boolean; user?: User; error?: string }>("/api/auth/login", {
         method: "POST",
-        body: JSON.stringify({ identifier, password, remember }),
+        body: JSON.stringify({ email, password, remember }),
         headers: { "x-csrf-token": get().csrfToken || "" },
       });
       if (res.ok && res.user) {
@@ -53,6 +57,7 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   register: async (name: string, email: string, password: string) => {
     try {
+      set({ lastError: null });
       if (!get().csrfToken) await get().fetchCsrf();
       const res = await fetchJSON<{ ok: boolean; user?: User; error?: string }>("/api/auth/register", {
         method: "POST",
@@ -85,8 +90,16 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   refreshMe: async () => {
     try {
-      const res = await fetchJSON<{ ok: boolean; user?: User }>("/api/auth/me");
-      if (res.ok && res.user) set({ user: res.user, isAuthenticated: true });
+      const res = await fetch("/api/auth/me", { headers: { "content-type": "application/json" }, credentials: "include" });
+      if (res.status === 401) {
+        set({ user: null, isAuthenticated: false, shouldPromptLogin: true });
+        return;
+      }
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.ok && data.user) set({ user: data.user, isAuthenticated: true });
     } catch {}
-  }
+  },
+
+  ackPromptLogin: () => set({ shouldPromptLogin: false })
 }));

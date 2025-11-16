@@ -13,16 +13,19 @@ export async function POST(req: Request) {
 
     let systemPrompt = "You are a helpful assistant.";
     if (personaId) {
-      const db = await getDb();
-      const p = await db.collection("personas").findOne({ id: personaId });
-      if (p) {
-        systemPrompt = `以人物「${p.name}」的口吻回應。背景：${p.story}. 特質：${(p.traits||[]).join(', ')}. 信念：${(p.beliefs||[]).join(', ')}.`;
-      }
+      try {
+        const db = await getDb();
+        const p = await db.collection("personas").findOne({ id: personaId });
+        if (p) {
+          systemPrompt = `以人物「${p.name}」的口吻回應。背景：${p.story}. 特質：${(p.traits||[]).join(', ')}. 信念：${(p.beliefs||[]).join(', ')}.`;
+        }
+      } catch {}
     }
 
     const key = process.env.OPENAI_API_KEY || "";
     if (!key) return NextResponse.json({ ok: false, error: "OPENAI_API_KEY missing" }, { status: 500 });
     const model = process.env.CHAT_MODEL || "gpt-4o-mini";
+    console.log("openai_chat_request", { model, key: !!key });
     const client = new OpenAI({ apiKey: key });
 
     const oai = await client.chat.completions.create({

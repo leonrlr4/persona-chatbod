@@ -21,12 +21,18 @@ export async function GET(req: Request) {
     const sessions = db.collection("sessions");
     const session = await sessions.findOne({ sessionId: token });
     if (!session) return NextResponse.json({ ok: false, error: "會話不存在" }, { status: 401 });
-    if (session.expiresAt && Date.now() > session.expiresAt) {
-      await sessions.deleteOne({ sessionId: token });
+    const now = Date.now();
+    if (typeof session.expiresAt === "number" && session.expiresAt <= now) {
       return NextResponse.json({ ok: false, error: "會話已過期" }, { status: 401 });
     }
-    const user = await db.collection("users").findOne({ userId: session.userId });
-    if (!user) return NextResponse.json({ ok: false, error: "用戶不存在" }, { status: 404 });
+    let user = await db.collection("users").findOne({ userId: session.userId });
+    if (!user) {
+      try {
+        const { ObjectId } = await import("mongodb");
+        user = await db.collection("users").findOne({ _id: new ObjectId(String(session.userId)) });
+      } catch {}
+    }
+    if (!user) return NextResponse.json({ ok: false, error: "用戶不存在" }, { status: 401 });
     return NextResponse.json({ ok: true, user: { userId: user.userId, name: user.name, email: user.email } });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 400 });

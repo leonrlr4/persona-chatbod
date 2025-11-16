@@ -18,7 +18,7 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
   const [items, setItems] = useState<Persona[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
-  const { user, isAuthenticated, logout, refreshMe } = useAuth();
+  const { user, isAuthenticated, logout, refreshMe, shouldPromptLogin, ackPromptLogin } = useAuth();
   const [hovered, setHovered] = useState<{ id: string; top: number; left: number } | null>(null);
   const hideTimer = useRef<number | null>(null);
   const [pinned, setPinned] = useState<{ id: string; top: number; left: number } | null>(null);
@@ -39,6 +39,19 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
       .catch(() => setItems([]));
     refreshMe();
   }, [refreshMe]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      refreshMe();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [refreshMe]);
+
+  useEffect(() => {
+    if (shouldPromptLogin) {
+      setShowAuthModal(true);
+    }
+  }, [shouldPromptLogin]);
 
   const filtered = useMemo(() => {
     if (!q) return items;
@@ -159,7 +172,7 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
 
       <AuthModal
         isOpen={showAuthModal}
-        onClose={() => setShowAuthModal(false)}
+        onClose={() => { setShowAuthModal(false); ackPromptLogin(); }}
       />
 
       {hoveredPersona && (pinned || hovered) && (

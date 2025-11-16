@@ -56,7 +56,7 @@ export async function generateCharacterEmbeddings() {
     
     // 建立向量索引
     try {
-      await db.collection('character_embeddings').createIndex(
+      await (db.collection('character_embeddings') as any).createIndex(
         { embedding: "cosmosSearch" },
         { cosmosSearchOptions: { kind: "vector", numLists: 100, similarity: "COS", dimensions: 384 } }
       );
@@ -124,9 +124,10 @@ export async function findSimilarCharacters(characterId: string, limit: number =
     ]).toArray();
     
     return similarCharacters;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('向量搜尋錯誤:', error);
-    throw new Error(`向量搜尋失敗: ${error.message}`);
+    const msg = error instanceof Error ? error.message : String(error);
+    throw new Error(`向量搜尋失敗: ${msg}`);
   }
 }
 

@@ -1,7 +1,16 @@
 export async function fetchJSON<T>(path: string, init?: RequestInit) {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) } });
-  if (!res.ok) throw new Error(`${res.status}`);
-  return (await res.json()) as T;
+  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers || {}) }, credentials: "include" });
+  const ct = res.headers.get("content-type") || "";
+  const isJson = ct.includes("application/json");
+  let data: any = null;
+  try {
+    data = isJson ? await res.json() : null;
+  } catch {
+    data = null;
+  }
+  if (res.ok) return data as T;
+  if (data !== null) return data as T;
+  throw new Error(`${res.status}`);
 }
 
 export async function listPersonas() {

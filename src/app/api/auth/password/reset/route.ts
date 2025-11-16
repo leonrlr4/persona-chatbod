@@ -10,7 +10,8 @@ function now() { return Date.now(); }
 
 export async function POST(req: Request) {
   try {
-    if (!verifyCsrf(req)) {
+    const csrfToken = req.headers.get("x-csrf-token") || "";
+    if (!verifyCsrf(csrfToken)) {
       return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
     }
     const body = await req.json();

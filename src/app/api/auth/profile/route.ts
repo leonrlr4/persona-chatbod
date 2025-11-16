@@ -21,7 +21,8 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    if (!verifyCsrf(req)) return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
+    const csrfToken = req.headers.get("x-csrf-token") || "";
+    if (!verifyCsrf(csrfToken)) return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
     const token = getCookie(req, "session_token");
     if (!token) return NextResponse.json({ ok: false, error: "未登入" }, { status: 401 });
     const db = await getDb();

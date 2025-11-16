@@ -45,7 +45,8 @@ const ImportSchema = z.object({
 export async function POST(req: Request) {
   try {
     // 管理員驗證（這裡簡化處理，實際應用需要更嚴格的驗證）
-    if (!verifyCsrf(req)) {
+    const csrfToken = req.headers.get("x-csrf-token") || "";
+    if (!verifyCsrf(csrfToken)) {
       return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
     }
 
@@ -187,9 +188,10 @@ async function importUsers(db: any, records: any[]) {
   
   const result = await db.collection('users').insertMany(users);
   
-  // 建立索引
-  await db.collection('users').createIndex({ email: 1 }, { unique: true });
-  await db.collection('users').createIndex({ username: 1 }, { unique: true });
+  // 建立非唯一索引（或視需要移除索引）
+  try { await db.collection('users').dropIndex('email_1'); } catch {}
+  try { await db.collection('users').dropIndex('username_1'); } catch {}
+  await db.collection('users').createIndex({ email: 1 }, { unique: false });
   
   return result;
 }

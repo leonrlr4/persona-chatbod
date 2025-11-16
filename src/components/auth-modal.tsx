@@ -56,7 +56,8 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
         setFormData({ name: "", email: "", password: "", confirmPassword: "" });
         router.push("/");
       } else {
-        alert(lastError || (activeTab === "login" ? "登入失敗" : "註冊失敗"));
+        const stateErr = (typeof (useAuth as any).getState === "function") ? (useAuth as any).getState().lastError : null;
+        alert(stateErr || lastError || (activeTab === "login" ? "登入失敗" : "註冊失敗"));
       }
     } catch (error) {
       console.error("Auth error:", error);
@@ -65,6 +66,9 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
       setIsLoading(false);
     }
   };
+
+  // 切換分頁時清空表單與錯誤，避免殘留訊息
+  const clearForm = () => setFormData({ name: "", email: "", password: "", confirmPassword: "" });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -83,7 +87,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
 
         <div className="mb-4 flex rounded-md bg-zinc-800 p-1">
           <button
-            onClick={() => setActiveTab("login")}
+            onClick={() => { setActiveTab("login"); clearForm(); }}
             className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
               activeTab === "login"
                 ? "bg-zinc-700 text-zinc-100"
@@ -94,7 +98,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
             登入
           </button>
           <button
-            onClick={() => setActiveTab("register")}
+            onClick={() => { setActiveTab("register"); clearForm(); }}
             className={`flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
               activeTab === "register"
                 ? "bg-zinc-700 text-zinc-100"

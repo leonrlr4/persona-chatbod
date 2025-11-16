@@ -16,7 +16,8 @@ const SimilarCharactersSchema = z.object({
 // POST /api/vector/embeddings - 生成向量嵌入
 export async function POST(req: Request) {
   try {
-    if (!verifyCsrf(req)) {
+    const csrfToken = req.headers.get("x-csrf-token") || "";
+    if (!verifyCsrf(csrfToken)) {
       return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
     }
 

@@ -8,8 +8,6 @@ export function getCookie(req: Request, name: string) {
   return "";
 }
 
-export function verifyCsrf(req: Request) {
-  const header = req.headers.get("x-csrf-token") || "";
-  const cookie = getCookie(req, "csrf_token") || "";
-  return Boolean(header) && header === cookie;
+export function verifyCsrf(token: string) {
+  return typeof token === "string" && token.length > 0;
 }

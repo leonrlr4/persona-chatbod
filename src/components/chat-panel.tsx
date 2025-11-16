@@ -13,50 +13,67 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
   }, [messages]);
 
+  useEffect(() => {
+    const key = `chat_history:${personaId || "default"}`;
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Msg[];
+        if (Array.isArray(parsed)) setMessages(parsed);
+        else setMessages([]);
+      } else {
+        setMessages([]);
+      }
+    } catch {
+      setMessages([]);
+    }
+  }, [personaId]);
+
+  useEffect(() => {
+    const key = `chat_history:${personaId || "default"}`;
+    try {
+      localStorage.setItem(key, JSON.stringify(messages));
+    } catch {}
+  }, [messages, personaId]);
+
   async function send() {
     const text = input.trim();
     if (!text) return;
     setInput("");
     setMessages(m => [...m, { role: "user", content: text }, { role: "assistant", content: "" }]);
     try {
-      const res = await fetch("/api/chat/stream", {
-        method: "POST",
-        body: JSON.stringify({ personaId, text }),
-        headers: { "content-type": "application/json" },
-      });
-      if (res.ok && res.body) {
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder("utf-8");
-        let done = false;
-        while (!done) {
-          const { value, done: d } = await reader.read();
-          done = d;
-          if (value) {
-            const chunk = decoder.decode(value);
-            setMessages(m => {
-              const copy = m.slice();
-              const last = copy[copy.length - 1];
-              copy[copy.length - 1] = { ...last, content: `${last.content}${chunk}` };
-              return copy;
-            });
-          }
-        }
-        return;
-      }
       const hf = await fetch("/api/chat/hf", {
         method: "POST",
         body: JSON.stringify({ personaId, text }),
         headers: { "content-type": "application/json" },
       });
-      if (!hf.ok) throw new Error("hf_failed");
-      const data = await hf.json();
-      if (data.ok && data.response) {
+      if (hf.ok) {
+        const data = await hf.json();
+        if (data.ok && data.response) {
+          setMessages(m => {
+            const copy = m.slice(0, -1);
+            return [...copy, { role: "assistant", content: data.response }];
+          });
+          return;
+        }
+      }
+      const res = await fetch("/api/chat/stream", {
+        method: "POST",
+        body: JSON.stringify({ personaId, text }),
+        headers: { "content-type": "application/json" },
+      });
+      if (!res.body) throw new Error("no_stream");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
         setMessages(m => {
           const copy = m.slice(0, -1);
-          return [...copy, { role: "assistant", content: data.response }];
+          return [...copy, { role: "assistant", content: acc }];
         });
-      } else {
-        throw new Error("no_response");
       }
     } catch {
       setMessages(m => {

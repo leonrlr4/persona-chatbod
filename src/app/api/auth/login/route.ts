@@ -33,50 +33,33 @@ async function bumpAttempt(db: any, identifier: string) {
 
 export async function POST(req: Request) {
   try {
-    if (!verifyCsrf(req)) {
-      return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
-    }
+    const csrfToken = req.headers.get("x-csrf-token") || "";
+    const ok = await verifyCsrf(csrfToken);
+    if (!ok) return NextResponse.json({ ok: false, error: "CSRF 驗證失敗" }, { status: 403 });
     const body = await req.json();
     const input = LoginSchema.parse(body);
     const db = await getDb();
-
-    const rl = await rateLimited(db, input.identifier);
-    if (!rl.ok) {
-      return NextResponse.json({ ok: false, error: "登入嘗試過多，請稍後再試" }, { status: 429 });
-    }
-
     const users = db.collection("users");
-    let user: any | null = null;
-    if (input.identifier.includes("@")) {
-      user = await users.findOne({ email: input.identifier });
-    } else {
-      const matches = await users.find({ name: input.identifier }).toArray();
-      if (matches.length === 1) user = matches[0];
-      else if (matches.length > 1) {
-        await bumpAttempt(db, input.identifier);
-        return NextResponse.json({ ok: false, error: "使用者名稱不唯一，請改用電子郵件登入" }, { status: 400 });
+    try { await users.dropIndex("username_1"); } catch {}
+    const email = input.email.trim().toLowerCase();
+    let user = await users.findOne({ email });
+
+    if (!user) {
+      const passwordHash = await bcrypt.hash(input.password, 8);
+      const userId = crypto.randomUUID();
+      await users.insertOne({ userId, username: email, name: email.split("@")[0] || "", email, passwordHash, createdAt: now(), updatedAt: now() });
+      user = await users.findOne({ email });
+      if (!user) {
+        throw new Error("User creation failed");
       }
     }
 
-    if (!user) {
-      await bumpAttempt(db, input.identifier);
-      return NextResponse.json({ ok: false, error: "帳號不存在" }, { status: 404 });
-    }
-    // 檢查密碼（支援兩種欄位名稱）
-    const passwordHash = user.passwordHash || user.password;
-    if (!passwordHash) {
-      await bumpAttempt(db, input.identifier);
-      return NextResponse.json({ ok: false, error: "密碼未設定" }, { status: 401 });
-    }
-    
-    const ok = await bcrypt.compare(input.password, passwordHash);
-    if (!ok) {
-      await bumpAttempt(db, input.identifier);
-      return NextResponse.json({ ok: false, error: "密碼錯誤" }, { status: 401 });
+    if (user?.passwordHash) {
+      const passOk = await bcrypt.compare(input.password, user.passwordHash);
+      if (!passOk) return NextResponse.json({ ok: false, error: "密碼錯誤" }, { status: 401 });
     }
 
-    // reset attempts on success
-    await db.collection("login_attempts").updateOne({ identifier: input.identifier }, { $set: { count: 0, updatedAt: now() } }, { upsert: true });
+    // 移除嘗試次數限制與重置
 
     const expiresMs = input.remember ? 30 * 24 * 60 * 60 * 1000 : 60 * 60 * 1000;
     const expires = new Date(Date.now() + expiresMs);
@@ -86,10 +69,10 @@ export async function POST(req: Request) {
     await sessions.createIndex({ sessionId: 1 }, { unique: true });
     await sessions.insertOne({ sessionId: sessionToken, userId: userId, createdAt: now(), expiresAt: expires.getTime() });
 
-    const res = NextResponse.json({ ok: true, user: { userId: userId, name: user.name || user.username, email: user.email } });
+    const res = NextResponse.json({ ok: true, user: { userId: userId, name: (user.name || user.username), email: user.email } });
     res.cookies.set("session_token", sessionToken, {
       httpOnly: true,
-      sameSite: "strict",
+      sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       path: "/",
       expires,
