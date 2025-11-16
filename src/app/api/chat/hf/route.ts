@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 import { ChatDeepSeek } from "@langchain/deepseek";
+import { verifySession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-async function saveConversation(personaId: string | null, userText: string, assistantText: string) {
+async function saveConversation(personaId: string | null, userText: string, assistantText: string, userId?: string) {
   try {
     const db = await getDb();
     const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -13,6 +14,7 @@ async function saveConversation(personaId: string | null, userText: string, assi
     await db.collection("conversations").insertOne({
       id: conversationId,
       personaId: personaId || null,
+      userId: userId || null,
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -45,6 +47,10 @@ export async function POST(req: Request) {
   let userText: string = "";
   const t0 = Date.now();
   try {
+    // Get user session (optional, for tracking)
+    const session = await verifySession(req);
+    const userId = session?.userId || null;
+
     const body = await req.json();
     const personaId: string | null = body.personaId || null;
     userText = String(body.text || "");
@@ -83,7 +89,7 @@ export async function POST(req: Request) {
     console.log("hf_chat_ok", { len: text.length });
 
     // Save to MongoDB
-    await saveConversation(personaId, userText, text);
+    await saveConversation(personaId, userText, text, userId || undefined);
 
     const res = NextResponse.json({ ok: true, response: text || "" });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);

@@ -26,8 +26,10 @@ export async function POST(req: Request) {
     }
     const passwordHash = await bcrypt.hash(input.newPassword, 12);
     await db.collection("users").updateOne({ userId: reset.userId }, { $set: { passwordHash, updatedAt: now() } });
-    // 清除既有會話
-    await db.collection("sessions").deleteMany({ userId: reset.userId });
+
+    // Note: With pure JWT, existing tokens will remain valid until expiry
+    // For immediate revocation, user should re-login to get new tokens
+
     // 刪除重置 token
     await resets.deleteOne({ token: input.token });
     return NextResponse.json({ ok: true });

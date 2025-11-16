@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 import { ChatDeepSeek } from "@langchain/deepseek";
+import { verifySession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-async function saveConversation(personaId: string | null, userText: string, assistantText: string) {
+async function saveConversation(personaId: string | null, userText: string, assistantText: string, userId?: string) {
   try {
     const db = await getDb();
     const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -13,6 +14,7 @@ async function saveConversation(personaId: string | null, userText: string, assi
     await db.collection("conversations").insertOne({
       id: conversationId,
       personaId: personaId || null,
+      userId: userId || null,
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -43,10 +45,14 @@ async function saveConversation(personaId: string | null, userText: string, assi
 
 export async function POST(req: Request) {
   try {
+    // Get user session (optional, for tracking)
+    const session = await verifySession(req);
+    const userId = session?.userId || null;
+
     const body = await req.json();
     const personaId: string | null = body.personaId || null;
     const userText: string = String(body.text || "");
-    console.log("chat_stream_request", { personaId, textLen: userText.length, textPreview: userText.slice(0, 100) });
+    console.log("chat_stream_request", { personaId, userId, textLen: userText.length, textPreview: userText.slice(0, 100) });
     if (!userText) {
       console.log("chat_stream_text_missing");
       return NextResponse.json({ ok: false, error: "text missing" }, { status: 400 });
@@ -111,7 +117,7 @@ export async function POST(req: Request) {
         if (done) {
           console.log("chat_stream_done");
           // Save to MongoDB after stream completes
-          await saveConversation(personaId, userText, fullResponse);
+          await saveConversation(personaId, userText, fullResponse, userId || undefined);
           controller.close();
         } else {
           console.log("chat_stream_enqueue", { size: (value && (value.byteLength || 0)) || 0 });

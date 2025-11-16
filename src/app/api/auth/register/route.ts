@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
 import { RegisterSchema, UserSchema } from "@/shared/schemas/auth";
 import { verifyCsrf } from "@/lib/csrf";
+import { generateAccessToken, generateRefreshToken } from "@/lib/jwt";
 import bcrypt from "bcryptjs";
 
 export const runtime = "nodejs";
@@ -23,7 +24,6 @@ async function ensureIndexes() {
 
 export async function POST(req: Request) {
   try {
-    // 移除 CSRF 檢查
     const body = await req.json();
     const input = RegisterSchema.parse(body);
 
@@ -34,7 +34,11 @@ export async function POST(req: Request) {
     const email = input.email.trim().toLowerCase();
     const name = input.name.trim();
 
-    // 允許重複 email 註冊
+    // Check if user already exists
+    const existingUser = await users.findOne({ email });
+    if (existingUser) {
+      return NextResponse.json({ ok: false, error: "此 Email 已被註冊" }, { status: 400 });
+    }
 
     const passwordHash = await bcrypt.hash(input.password, 12);
     const userId = crypto.randomUUID();
@@ -49,20 +53,34 @@ export async function POST(req: Request) {
 
     await users.insertOne({ ...doc, username: email });
 
-    const res = NextResponse.json({ ok: true, user: { userId, name: doc.name, email: doc.email } });
-    // 自動登入：建立短期會話 cookie（無記住我）
-    const sessionToken = `${userId}.${crypto.randomUUID()}`;
-    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1h
-    res.cookies.set("session_token", sessionToken, {
+    // Generate JWT tokens
+    const accessToken = generateAccessToken(userId, email);
+    const refreshToken = generateRefreshToken(userId, email);
+
+    // Set cookies
+    const cookieOptions = {
       httpOnly: true,
-      sameSite: "lax",
+      sameSite: "lax" as const,
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      expires,
+    };
+
+    const res = NextResponse.json({
+      ok: true,
+      user: { userId, name: doc.name, email: doc.email },
+      accessToken,
+      refreshToken
     });
-    const sessions = db.collection("sessions");
-    await sessions.createIndex({ sessionId: 1 }, { unique: true });
-    await sessions.insertOne({ sessionId: sessionToken, userId, createdAt: now(), expiresAt: expires.getTime() });
+
+    res.cookies.set("access_token", accessToken, {
+      ...cookieOptions,
+      maxAge: 7 * 24 * 60 * 60, // 7 days
+    });
+
+    res.cookies.set("refresh_token", refreshToken, {
+      ...cookieOptions,
+      maxAge: 30 * 24 * 60 * 60, // 30 days
+    });
 
     return res;
   } catch (e: any) {

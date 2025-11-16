@@ -1,39 +1,33 @@
 import { NextResponse } from "next/server";
+import { verifySession } from "@/lib/session";
 import { getDb } from "@/lib/mongo";
 
 export const runtime = "nodejs";
 
-function getCookie(req: Request, name: string) {
-  const cookie = req.headers.get("cookie") || "";
-  const parts = cookie.split(";");
-  for (const p of parts) {
-    const [k, v] = p.trim().split("=");
-    if (k === name) return decodeURIComponent(v || "");
-  }
-  return "";
-}
-
 export async function GET(req: Request) {
   try {
-    const token = getCookie(req, "session_token");
-    if (!token) return NextResponse.json({ ok: false, error: "未登入" }, { status: 401 });
+    const session = await verifySession(req);
+
+    if (!session) {
+      return NextResponse.json({ ok: false, error: "未登入" }, { status: 401 });
+    }
+
+    // Get full user data from database
     const db = await getDb();
-    const sessions = db.collection("sessions");
-    const session = await sessions.findOne({ sessionId: token });
-    if (!session) return NextResponse.json({ ok: false, error: "會話不存在" }, { status: 401 });
-    const now = Date.now();
-    if (typeof session.expiresAt === "number" && session.expiresAt <= now) {
-      return NextResponse.json({ ok: false, error: "會話已過期" }, { status: 401 });
-    }
-    let user = await db.collection("users").findOne({ userId: session.userId });
+    const user = await db.collection("users").findOne({ userId: session.userId });
+
     if (!user) {
-      try {
-        const { ObjectId } = await import("mongodb");
-        user = await db.collection("users").findOne({ _id: new ObjectId(String(session.userId)) });
-      } catch {}
+      return NextResponse.json({ ok: false, error: "用戶不存在" }, { status: 401 });
     }
-    if (!user) return NextResponse.json({ ok: false, error: "用戶不存在" }, { status: 401 });
-    return NextResponse.json({ ok: true, user: { userId: user.userId, name: user.name, email: user.email } });
+
+    return NextResponse.json({
+      ok: true,
+      user: {
+        userId: user.userId,
+        name: user.name || user.username,
+        email: user.email
+      }
+    });
   } catch (e: any) {
     return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 400 });
   }
