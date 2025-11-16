@@ -19,9 +19,8 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
   const [active, setActive] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const { user, isAuthenticated, logout, refreshMe, shouldPromptLogin, ackPromptLogin } = useAuth();
-  const [hovered, setHovered] = useState<{ id: string; top: number; left: number } | null>(null);
   const hideTimer = useRef<number | null>(null);
-  const [pinned, setPinned] = useState<{ id: string; top: number; left: number } | null>(null);
+  const [pinned, setPinned] = useState<{ id: string; top: number; left: number; w: number; h: number } | null>(null);
 
   useEffect(() => {
     listPersonas()
@@ -59,11 +58,10 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
     return items.filter(i => i.name.toLowerCase().includes(s));
   }, [q, items]);
 
-  const hoveredPersona = useMemo(() => {
-    const target = pinned || hovered;
-    if (!target) return null;
-    return items.find(i => i.id === target.id) || null;
-  }, [hovered, pinned, items]);
+  const detailPersona = useMemo(() => {
+    if (!pinned) return null;
+    return items.find(i => i.id === pinned.id) || null;
+  }, [pinned, items]);
 
   const selected = useMemo(() => {
     if (!active) return null;
@@ -71,7 +69,7 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
   }, [active, items]);
 
   return (
-    <aside className="flex h-screen w-[300px] flex-col gap-4 border-r border-black/10 bg-black text-zinc-200">
+    <aside className="relative flex h-screen min-w-[240px] w-[260px] sm:w-[260px] md:w-[280px] lg:w-[300px] xl:w-[320px] flex-col gap-4 border-r border-black/10 bg-black text-zinc-200">
       <div className="flex items-center gap-2 px-4 pt-4 text-lg font-semibold">
         <Bot size={20} />
         <span>Bible Persona Chat</span>
@@ -100,33 +98,20 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
             <li
               key={p.id}
               className="relative"
-              onMouseEnter={e => {
-                if (hideTimer.current) {
-                  clearTimeout(hideTimer.current);
-                  hideTimer.current = null;
-                }
-                const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                const gap = 12;
-                const panelW = 420;
-                const panelH = 480;
-                const margin = 16;
-                const vw = typeof window !== "undefined" ? window.innerWidth : 1200;
-                const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-                const left = Math.min(vw - panelW - margin, r.right + gap);
-                const top = Math.min(Math.max(margin, r.top), vh - panelH - margin);
-                setHovered({ id: p.id, top, left });
-              }}
-              onMouseLeave={() => {
-                if (hideTimer.current) clearTimeout(hideTimer.current);
-                hideTimer.current = window.setTimeout(() => {
-                  if (!pinned) setHovered(prev => (prev?.id === p.id ? null : prev));
-                  hideTimer.current = null;
-                }, 500);
-              }}
             >
               <button
                 aria-label={`Select ${p.name}`}
-                onClick={() => {
+                onClick={e => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  const gap = 8;
+                  const margin = 16;
+                  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+                  const availableW = r.width - gap * 2;
+                  const panelW = Math.max(220, Math.min(availableW, 300));
+                  const panelH = 420;
+                  const left = Math.max(margin, r.left + gap);
+                  const top = Math.min(Math.max(margin, r.top), vh - panelH - margin);
+                  setPinned({ id: p.id, top, left, w: panelW, h: panelH });
                   setActive(p.id);
                   onSelectPersona(p.id, p.name);
                 }}
@@ -175,31 +160,18 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
         onClose={() => { setShowAuthModal(false); ackPromptLogin(); }}
       />
 
-      {hoveredPersona && (pinned || hovered) && (
+      {detailPersona && pinned && (
         <div
-          className="fixed z-50 w-[420px] h-[480px] overflow-hidden rounded-lg border border-white/10 bg-zinc-900 shadow-xl"
-          style={{ top: (pinned || hovered)!.top, left: (pinned || hovered)!.left }}
-          onMouseEnter={() => {
-            if (hideTimer.current) {
-              clearTimeout(hideTimer.current);
-              hideTimer.current = null;
-            }
-          }}
-          onMouseLeave={() => {
-            if (hideTimer.current) clearTimeout(hideTimer.current);
-            hideTimer.current = window.setTimeout(() => {
-              if (!pinned) setHovered(null);
-              hideTimer.current = null;
-            }, 800);
-          }}
+          className="fixed z-50 flex flex-col overflow-hidden rounded-lg border border-white/10 bg-zinc-900 shadow-xl"
+          style={{ top: pinned.top, left: pinned.left, width: pinned.w, height: pinned.h }}
         >
           <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-            <div className="text-sm font-semibold">{hoveredPersona.name}</div>
+            <div className="text-sm font-semibold">{detailPersona.name}</div>
             <div className="flex items-center gap-1">
               <button
                 aria-label="Pin"
                 onClick={() => {
-                  const pos = pinned || hovered;
+                  const pos = pinned;
                   if (!pos) return;
                   setPinned(prev => (prev ? null : pos));
                 }}
@@ -211,7 +183,6 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
                 aria-label="Close"
                 onClick={() => {
                   setPinned(null);
-                  setHovered(null);
                 }}
                 className="rounded p-1 hover:bg-zinc-800"
               >
@@ -219,25 +190,25 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
               </button>
             </div>
           </div>
-          <div className="h-[440px] overflow-y-auto p-3">
+          <div className="flex-1 overflow-y-auto p-3">
             <div className="mt-2 text-xs whitespace-pre-line text-zinc-300">
-              {hoveredPersona.story && hoveredPersona.story.trim().length > 0 ? hoveredPersona.story : "無詳細資料"}
+              {detailPersona.story && detailPersona.story.trim().length > 0 ? detailPersona.story : "無詳細資料"}
             </div>
-            {!!(hoveredPersona.traits && hoveredPersona.traits.length) && (
+            {!!(detailPersona.traits && detailPersona.traits.length) && (
               <div className="mt-3">
                 <div className="text-xs uppercase text-zinc-500">Traits</div>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {hoveredPersona.traits.slice(0, 24).map(t => (
+                  {detailPersona.traits.slice(0, 24).map(t => (
                     <span key={t} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{t}</span>
                   ))}
                 </div>
               </div>
             )}
-            {!!(hoveredPersona.beliefs && hoveredPersona.beliefs.length) && (
+            {!!(detailPersona.beliefs && detailPersona.beliefs.length) && (
               <div className="mt-3">
                 <div className="text-xs uppercase text-zinc-500">Beliefs</div>
                 <div className="mt-1 flex flex-wrap gap-1">
-                  {hoveredPersona.beliefs.slice(0, 24).map(b => (
+                  {detailPersona.beliefs.slice(0, 24).map(b => (
                     <span key={b} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{b}</span>
                   ))}
                 </div>

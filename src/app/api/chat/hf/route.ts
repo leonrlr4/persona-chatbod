@@ -1,7 +1,45 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
+import { ChatDeepSeek } from "@langchain/deepseek";
 
 export const runtime = "nodejs";
+
+async function saveConversation(personaId: string | null, userText: string, assistantText: string) {
+  try {
+    const db = await getDb();
+    const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+    // Save conversation
+    await db.collection("conversations").insertOne({
+      id: conversationId,
+      personaId: personaId || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+
+    // Save messages
+    await db.collection("messages").insertMany([
+      {
+        id: `msg-${Date.now()}-user`,
+        conversationId,
+        role: "user",
+        content: userText,
+        timestamp: new Date()
+      },
+      {
+        id: `msg-${Date.now()}-assistant`,
+        conversationId,
+        role: "assistant",
+        content: assistantText,
+        timestamp: new Date()
+      }
+    ]);
+
+    console.log("hf_chat_saved_to_db", { conversationId, userLen: userText.length, assistantLen: assistantText.length });
+  } catch (dbErr: any) {
+    console.error("hf_chat_save_error", { message: String(dbErr?.message || dbErr) });
+  }
+}
 
 export async function POST(req: Request) {
   let userText: string = "";
@@ -20,132 +58,40 @@ export async function POST(req: Request) {
         if (p) {
           systemPrompt = `以人物「${p.name}」的口吻回應。背景：${p.story}. 特質：${(p.traits||[]).join(', ')}. 信念：${(p.beliefs||[]).join(', ')}.`;
         }
-      } catch {}
+      } catch (dbError: any) {
+        console.error("hf_chat_db_error", { message: String(dbError?.message || dbError) });
+      }
     }
 
-    const hfToken = process.env.HUGGINGFACE_API_KEY || "";
-    const model = process.env.HF_CHAT_MODEL || "microsoft/DialoGPT-medium";
-    
-    if (!hfToken) {
-      const mock = `收到，你說：「${userText}」。`;
-      const res = NextResponse.json({ ok: true, response: mock });
+    const key = process.env.DEEPSEEK_API_KEY || "";
+    const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+    if (!key) {
+      console.log("hf_chat_env_missing", { keyPresent: !!key });
+      const res = NextResponse.json({ ok: false, error: "DEEPSEEK_API_KEY missing" }, { status: 500 });
       res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
       return res;
     }
+    console.log("hf_chat_llm_init", { model, temperature: 0.7 });
+    const llm = new ChatDeepSeek({ apiKey: key, model, temperature: 0.7 });
+    console.log("hf_chat_request");
+    const result = await llm.invoke([
+      ["system", systemPrompt],
+      ["human", userText],
+    ] as any);
+    const c: any = (result && (result as any).content) || "";
+    const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((v: any) => (typeof v === "string" ? v : String(v?.text || ""))).join("") : "";
+    console.log("hf_chat_ok", { len: text.length });
 
-    const prompt = `${systemPrompt}\nUser: ${userText}\nAssistant:`;
-    console.log("hf_chat_request", { model, token: !!hfToken });
-    const response = await fetch(
-      `https://api-inference.huggingface.co/models/${model}`,
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${hfToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          inputs: prompt,
-          parameters: {
-            max_new_tokens: 200,
-            temperature: 0.7,
-            top_p: 0.9,
-            return_full_text: false,
-            do_sample: true,
-            repetition_penalty: 1.1,
-          },
-          options: { wait_for_model: true },
-        }),
-      }
-    );
+    // Save to MongoDB
+    await saveConversation(personaId, userText, text);
 
-    if (!response.ok) {
-      console.log("hf_chat_non_ok", { status: response.status });
-      const altModel = "gpt2";
-      const same = await fetch(`https://api-inference.huggingface.co/models/${model}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${hfToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            inputs: prompt,
-            parameters: {
-              max_new_tokens: 160,
-              temperature: 0.7,
-              top_p: 0.9,
-              return_full_text: false,
-              do_sample: true,
-              repetition_penalty: 1.1,
-            },
-            options: { wait_for_model: true },
-          }),
-        }
-      );
-      if (same.ok) {
-        const sameData = await same.json();
-        const sameText = (Array.isArray(sameData) ? sameData[0]?.generated_text : sameData?.generated_text) || "";
-        const sameClean = String(sameText).replace(`${systemPrompt}\nUser: ${userText}\nAssistant:`, "").trim();
-        const res = NextResponse.json({ ok: true, response: sameClean || `收到，你說：「${userText}」。` });
-        res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
-        return res;
-      }
-      const alt = await fetch(`https://api-inference.huggingface.co/models/${altModel}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${hfToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            inputs: `${systemPrompt}\nUser: ${userText}\nAssistant:`,
-            parameters: {
-              max_new_tokens: 200,
-              temperature: 0.7,
-              top_p: 0.9,
-              return_full_text: false,
-              do_sample: true,
-            },
-            options: { wait_for_model: true },
-          }),
-        }
-      );
-      if (!alt.ok) {
-        console.log("hf_alt_non_ok", { status: alt.status });
-        const mock = `收到，你說：「${userText}」。`;
-        const res = NextResponse.json({ ok: true, response: mock });
-        res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
-        return res;
-      }
-      const altData = await alt.json();
-      const altText = (Array.isArray(altData) ? altData[0]?.generated_text : altData?.generated_text) || "";
-      const altClean = String(altText).replace(`${systemPrompt}\nUser: ${userText}\nAssistant:`, "").trim();
-      const res = NextResponse.json({ ok: true, response: altClean || `收到，你說：「${userText}」。` });
-      res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
-      return res;
-    }
-
-    const data = await response.json();
-    console.log("hf_chat_ok");
-    const generatedText = (Array.isArray(data) ? data[0]?.generated_text : data?.generated_text) || data?.conversation?.generated_responses?.[0] || "抱歉，我無法生成回應。";
-    
-    // 清理回應文字
-    const cleanResponse = String(generatedText).replace(`${systemPrompt}\nUser: ${userText}\nAssistant:`, "").trim();
-    
-    const res = NextResponse.json({ 
-      ok: true, 
-      response: cleanResponse 
-    });
+    const res = NextResponse.json({ ok: true, response: text || "" });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
     return res;
 
   } catch (e: any) {
     const msg = String(e?.message || e || "");
-    if (msg.includes("MONGODB_URI") || msg.includes("MONGODB_DB")) {
-      const res = NextResponse.json({ ok: true, response: `收到，你說：「${userText}」。` });
-      res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
-      return res;
-    }
+    console.error("hf_chat_error", { message: msg, stack: e?.stack });
     const res = NextResponse.json({ ok: false, error: msg }, { status: 500 });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
     return res;
