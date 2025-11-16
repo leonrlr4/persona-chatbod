@@ -1,6 +1,6 @@
-import OpenAI from "openai";
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
+import { ChatDeepSeek } from "@langchain/deepseek";
 
 export const runtime = "nodejs";
 
@@ -22,26 +22,21 @@ export async function POST(req: Request) {
       } catch {}
     }
 
-    const key = process.env.OPENAI_API_KEY || "";
-    if (!key) return NextResponse.json({ ok: false, error: "OPENAI_API_KEY missing" }, { status: 500 });
-    const model = process.env.CHAT_MODEL || "gpt-4o-mini";
-    console.log("openai_chat_request", { model, key: !!key });
-    const client = new OpenAI({ apiKey: key });
-
-    const oai = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userText },
-      ],
-      stream: true,
-    });
+    const key = process.env.DEEPSEEK_API_KEY || "";
+    if (!key) return NextResponse.json({ ok: false, error: "DEEPSEEK_API_KEY missing" }, { status: 500 });
+    const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+    const llm = new ChatDeepSeek({ apiKey: key, model, temperature: 0.7 });
 
     const encoder = new TextEncoder();
     async function* makeIterator() {
-      for await (const chunk of oai) {
-        const delta = chunk.choices[0]?.delta?.content || "";
-        if (delta) yield encoder.encode(delta);
+      const stream = await llm.stream([
+        ["system", systemPrompt],
+        ["human", userText],
+      ]);
+      for await (const chunk of stream as any) {
+        const c: any = (chunk && (chunk.content as any)) || "";
+        const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((v: any) => (typeof v === "string" ? v : String(v?.text || ""))).join("") : "";
+        if (text) yield encoder.encode(text);
       }
     }
     const stream = new ReadableStream({

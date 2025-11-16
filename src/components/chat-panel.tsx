@@ -7,6 +7,8 @@ type Msg = { role: "user" | "assistant"; content: string };
 export default function ChatPanel({ personaId, personaName }: { personaId: string | null; personaName?: string | null }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
+  const [recording, setRecording] = useState(false);
+  const recRef = useRef<MediaRecorder | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -83,6 +85,40 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     }
   }
 
+  async function toggleRecord() {
+    try {
+      if (recording) {
+        recRef.current?.stop();
+        return;
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      mr.ondataavailable = e => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mr.onstop = async () => {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const fd = new FormData();
+        fd.append("file", blob, "audio.webm");
+        try {
+          const r = await fetch("/api/stt", { method: "POST", body: fd });
+          if (r.ok) {
+            const j = await r.json();
+            const text: string = String(j?.text || "");
+            if (text) {
+              setInput(text);
+              await send();
+            }
+          }
+        } catch {}
+        setRecording(false);
+        recRef.current = null;
+      };
+      recRef.current = mr;
+      setRecording(true);
+      mr.start();
+    } catch {}
+  }
+
   return (
     <div className="flex h-screen flex-1 flex-col bg-gradient-to-br from-zinc-900 to-zinc-950 text-zinc-100">
       <header className="flex items-center justify-between px-6 py-4">
@@ -107,7 +143,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
       </div>
       <div className="mx-auto w-full max-w-2xl px-6 pb-6">
         <div className="flex items-center gap-2 rounded-2xl bg-zinc-800 px-4 py-3">
-          <button aria-label="Record" className="rounded-md p-2 hover:bg-zinc-700">
+          <button aria-label="Record" onClick={toggleRecord} className={`rounded-md p-2 ${recording ? "bg-red-700" : "hover:bg-zinc-700"}`}>
             <Mic size={18} />
           </button>
           <input
