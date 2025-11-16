@@ -1,10 +1,12 @@
 {
-  "buildCommand": "next build",
-  "outputDirectory": ".next",
   "framework": "nextjs",
   "functions": {
+    "app/api/chat/**/*.ts": {
+      "maxDuration": 60
+    },
     "app/api/**/*.ts": {
       "maxDuration": 30
     }
-  }
+  },
+  "regions": ["hnd1"]
 }
