@@ -5,31 +5,46 @@ import { verifySession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-async function saveConversation(personaId: string | null, userText: string, assistantText: string, userId?: string) {
+async function saveConversation(
+  personaId: string | null,
+  userText: string,
+  assistantText: string,
+  userId?: string,
+  existingConversationId?: string
+): Promise<string> {
   try {
     const db = await getDb();
-    const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let conversationId = existingConversationId;
 
-    // Save conversation
-    await db.collection("conversations").insertOne({
-      id: conversationId,
-      personaId: personaId || null,
-      userId: userId || null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
+    if (!conversationId) {
+      // Create new conversation
+      conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await db.collection("conversations").insertOne({
+        id: conversationId,
+        personaId: personaId || null,
+        userId: userId || null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    } else {
+      // Update existing conversation timestamp
+      await db.collection("conversations").updateOne(
+        { id: conversationId },
+        { $set: { updatedAt: new Date() } }
+      );
+    }
 
     // Save messages
     await db.collection("messages").insertMany([
       {
-        id: `msg-${Date.now()}-user`,
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}-user`,
         conversationId,
         role: "user",
         content: userText,
         timestamp: new Date()
       },
       {
-        id: `msg-${Date.now()}-assistant`,
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}-assistant`,
         conversationId,
         role: "assistant",
         content: assistantText,
@@ -38,8 +53,10 @@ async function saveConversation(personaId: string | null, userText: string, assi
     ]);
 
     console.log("chat_stream_saved_to_db", { conversationId, userLen: userText.length, assistantLen: assistantText.length });
+    return conversationId;
   } catch (dbErr: any) {
     console.error("chat_stream_save_error", { message: String(dbErr?.message || dbErr) });
+    return existingConversationId || "";
   }
 }
 
@@ -51,8 +68,9 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const personaId: string | null = body.personaId || null;
+    const conversationId: string | null = body.conversationId || null;
     const userText: string = String(body.text || "");
-    console.log("chat_stream_request", { personaId, userId, textLen: userText.length, textPreview: userText.slice(0, 100) });
+    console.log("chat_stream_request", { personaId, conversationId, userId, textLen: userText.length, textPreview: userText.slice(0, 100) });
     if (!userText) {
       console.log("chat_stream_text_missing");
       return NextResponse.json({ ok: false, error: "text missing" }, { status: 400 });
@@ -86,6 +104,7 @@ export async function POST(req: Request) {
 
     const encoder = new TextEncoder();
     let fullResponse = "";
+    let savedConversationId = conversationId;
     async function* makeIterator() {
       try {
         const stream = await llm.stream([
@@ -117,7 +136,7 @@ export async function POST(req: Request) {
         if (done) {
           console.log("chat_stream_done");
           // Save to MongoDB after stream completes
-          await saveConversation(personaId, userText, fullResponse, userId || undefined);
+          savedConversationId = await saveConversation(personaId, userText, fullResponse, userId || undefined, conversationId || undefined);
           controller.close();
         } else {
           console.log("chat_stream_enqueue", { size: (value && (value.byteLength || 0)) || 0 });
@@ -131,6 +150,7 @@ export async function POST(req: Request) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "no-cache",
+        "X-Conversation-Id": savedConversationId || "",
       },
     });
   } catch (e: any) {

@@ -4,9 +4,13 @@ import { Mic, Send, Bot } from "lucide-react";
 import { useChat } from "@/hooks/useChat";
 
 export default function ChatPanel({ personaId, personaName }: { personaId: string | null; personaName?: string | null }) {
-  const { messages: allMessages, isLoading, setCurrentPersona, sendMessage } = useChat();
-  const key = personaId || "default";
-  const messages = allMessages[key] || [];
+  const { messages: allMessages, isLoading, setCurrentPersona, sendMessage, currentConversationId, loadMoreMessages, error, errorCode, clearMessages, loadConversation, currentPersonaId, conversations } = useChat();
+  const activeKey = currentPersonaId || personaId || "default";
+  const messages = allMessages[activeKey] || [];
+  const derivedPersonaName = (() => {
+    const c = conversations.find(c => c.id === currentConversationId);
+    return c?.personaName || personaName || null;
+  })();
 
   const [input, setInput] = useState("");
   const [recording, setRecording] = useState(false);
@@ -21,15 +25,46 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   const [status, setStatus] = useState<"idle" | "recording" | "processing" | "countdown" | "sending" | "error">("idle");
   const [countdown, setCountdown] = useState<number>(0);
   const listRef = useRef<HTMLDivElement>(null);
+  const [virt, setVirt] = useState<{ start: number; end: number; itemH: number }>({ start: 0, end: 50, itemH: 56 });
   const lastSubmitRef = useRef<{ text: string; ts: number } | null>(null);
 
   useEffect(() => {
-    listRef.current?.scrollTo({ top: listRef.current.scrollHeight });
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight });
+    if (messages.length > 100) {
+      const calc = () => {
+        const h = virt.itemH;
+        const viewport = el.clientHeight;
+        const visible = Math.max(10, Math.ceil(viewport / h) + 20);
+        setVirt(v => ({ ...v, end: v.start + visible }));
+      };
+      try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(calc) : setTimeout(calc, 0); } catch { setTimeout(calc, 0); }
+    } else {
+      setVirt(v => ({ ...v, start: 0, end: messages.length }));
+    }
   }, [messages]);
 
   useEffect(() => {
     setCurrentPersona(personaId);
   }, [personaId, setCurrentPersona]);
+
+  function onScroll() {
+    const el = listRef.current;
+    if (!el) return;
+    const top = el.scrollTop;
+    if (top <= 8 && currentConversationId) {
+      loadMoreMessages(currentConversationId);
+    }
+    if (messages.length > 100) {
+      const h = virt.itemH;
+      const start = Math.max(0, Math.floor(top / h) - 10);
+      const viewport = el.clientHeight;
+      const visible = Math.max(10, Math.ceil(viewport / h) + 20);
+      const end = Math.min(messages.length, start + visible);
+      setVirt(s => ({ ...s, start, end }));
+    }
+  }
 
   async function send(textParam?: string, source?: string) {
     const raw = textParam !== undefined ? textParam : input;
@@ -191,21 +226,62 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
       <header className="flex items-center justify-between px-6 py-4">
         <div className="flex items-center gap-2">
           <div className="rounded-md bg-zinc-800 px-3 py-1 text-xs">Beta</div>
-          {personaName && (
+          {derivedPersonaName && (
             <div className="flex items-center gap-1 rounded-md bg-zinc-800 px-3 py-1 text-xs text-zinc-200">
               <Bot size={14} className="text-zinc-400" />
-              <span className="max-w-[180px] truncate">{personaName}</span>
+              <span className="max-w-[180px] truncate">{derivedPersonaName}</span>
             </div>
           )}
         </div>
       </header>
-      <div ref={listRef} className="flex-1 overflow-y-auto px-6">
-        <div className="mx-auto max-w-2xl space-y-6 py-6">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-              <div className={`rounded-2xl px-4 py-3 text-sm ${m.role === "user" ? "bg-zinc-700" : "bg-zinc-800"}`}>{m.content}</div>
+      <div ref={listRef} onScroll={onScroll} className="relative flex-1 overflow-y-auto px-6" aria-live="polite">
+        {isLoading && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="animate-pulse rounded-md bg-zinc-800/70 px-3 py-2 text-sm">正在載入歷史對話…</div>
+          </div>
+        )}
+        <div className="mx-auto max-w-2xl py-6">
+          {messages.length > 100 ? (
+            <div style={{ height: messages.length * virt.itemH }}>
+              <div style={{ transform: `translateY(${virt.start * virt.itemH}px)` }} className="space-y-6">
+                {messages.slice(virt.start, virt.end).map((m, i) => (
+                  <div key={`${virt.start + i}-${m.id || i}`} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`rounded-2xl px-4 py-3 text-sm ${m.role === "user" ? "bg-zinc-700" : "bg-zinc-800"}`}>{m.content}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ))}
+          ) : (
+            <div className="space-y-6">
+              {messages.map((m, i) => (
+                <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                  <div className={`rounded-2xl px-4 py-3 text-sm ${m.role === "user" ? "bg-zinc-700" : "bg-zinc-800"}`}>{m.content}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!!error && (
+            <div className="mt-4 flex items-center gap-2 text-sm text-red-400">
+              <span>{error}</span>
+              <button
+                onClick={() => { if (currentConversationId) { loadConversation(currentConversationId); } }}
+                className="rounded bg-red-900/40 px-2 py-1 hover:bg-red-800/60"
+              >
+                重試載入
+              </button>
+              {errorCode ? (
+                <button
+                  onClick={() => {
+                    // 恢復默認值（清空目前視窗）
+                    clearMessages(personaId || null);
+                  }}
+                  className="rounded bg-zinc-800 px-2 py-1 hover:bg-zinc-700"
+                >
+                  恢復默認值
+                </button>
+              ) : null}
+            </div>
+          )}
         </div>
       </div>
       <div className="mx-auto w-full max-w-2xl px-6 pb-6">

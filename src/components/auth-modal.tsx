@@ -202,13 +202,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
             {isLoading ? "處理中..." : (activeTab === "login" ? "登入" : "註冊")}
           </button>
 
-          <button
-            type="button"
-            onClick={() => { window.location.href = "/api/auth/oauth/google"; }}
-            className="mt-2 w-full rounded-md bg-zinc-800 px-4 py-2 text-sm font-medium text-zinc-100 hover:bg-zinc-700 focus:outline-none focus:ring-2 focus:ring-zinc-500 focus:ring-offset-2 focus:ring-offset-zinc-900"
-          >
-            使用 Google 登入
-          </button>
+          {/* 移除 Google 登入按鈕 */}
         </form>
 
         <div className="mt-4 text-center text-sm text-zinc-400">

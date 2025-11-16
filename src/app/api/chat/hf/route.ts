@@ -5,31 +5,46 @@ import { verifySession } from "@/lib/session";
 
 export const runtime = "nodejs";
 
-async function saveConversation(personaId: string | null, userText: string, assistantText: string, userId?: string) {
+async function saveConversation(
+  personaId: string | null,
+  userText: string,
+  assistantText: string,
+  userId?: string,
+  existingConversationId?: string
+): Promise<string> {
   try {
     const db = await getDb();
-    const conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let conversationId = existingConversationId;
 
-    // Save conversation
-    await db.collection("conversations").insertOne({
-      id: conversationId,
-      personaId: personaId || null,
-      userId: userId || null,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
+    if (!conversationId) {
+      // Create new conversation
+      conversationId = `conv-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      await db.collection("conversations").insertOne({
+        id: conversationId,
+        personaId: personaId || null,
+        userId: userId || null,
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    } else {
+      // Update existing conversation timestamp
+      await db.collection("conversations").updateOne(
+        { id: conversationId },
+        { $set: { updatedAt: new Date() } }
+      );
+    }
 
     // Save messages
     await db.collection("messages").insertMany([
       {
-        id: `msg-${Date.now()}-user`,
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}-user`,
         conversationId,
         role: "user",
         content: userText,
         timestamp: new Date()
       },
       {
-        id: `msg-${Date.now()}-assistant`,
+        id: `msg-${Date.now()}-${Math.random().toString(36).slice(2)}-assistant`,
         conversationId,
         role: "assistant",
         content: assistantText,
@@ -38,8 +53,10 @@ async function saveConversation(personaId: string | null, userText: string, assi
     ]);
 
     console.log("hf_chat_saved_to_db", { conversationId, userLen: userText.length, assistantLen: assistantText.length });
+    return conversationId;
   } catch (dbErr: any) {
     console.error("hf_chat_save_error", { message: String(dbErr?.message || dbErr) });
+    return existingConversationId || "";
   }
 }
 
@@ -53,6 +70,7 @@ export async function POST(req: Request) {
 
     const body = await req.json();
     const personaId: string | null = body.personaId || null;
+    const conversationId: string | null = body.conversationId || null;
     userText = String(body.text || "");
     if (!userText) return NextResponse.json({ ok: false, error: "text missing" }, { status: 400 });
 
@@ -89,9 +107,9 @@ export async function POST(req: Request) {
     console.log("hf_chat_ok", { len: text.length });
 
     // Save to MongoDB
-    await saveConversation(personaId, userText, text, userId || undefined);
+    const savedConversationId = await saveConversation(personaId, userText, text, userId || undefined, conversationId || undefined);
 
-    const res = NextResponse.json({ ok: true, response: text || "" });
+    const res = NextResponse.json({ ok: true, response: text || "", conversationId: savedConversationId });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
     return res;
 

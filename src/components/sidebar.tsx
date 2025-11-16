@@ -4,6 +4,7 @@ import { listPersonas } from "@/utils/api";
 import { Search, Bot, MessageSquare, Settings, Users, ChevronRight, LogIn, LogOut, User, Pin, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "./auth-modal";
+import { ConversationHistory } from "./conversation-history";
 
 type Persona = {
   id: string;
@@ -21,6 +22,7 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
   const { user, isAuthenticated, logout, refreshMe, shouldPromptLogin, ackPromptLogin } = useAuth();
   const hideTimer = useRef<number | null>(null);
   const [pinned, setPinned] = useState<{ id: string; top: number; left: number; w: number; h: number } | null>(null);
+  const [view, setView] = useState<"personas" | "conversations">("personas");
 
   useEffect(() => {
     listPersonas()
@@ -80,53 +82,71 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
           <input aria-label="Search" value={q} onChange={e => setQ(e.target.value)} placeholder="Search" className="flex-1 bg-transparent text-sm outline-none placeholder:text-zinc-500" />
         </div>
       </div>
-      <div className="px-4 text-xs uppercase text-zinc-400">Settings</div>
+      <div className="px-4 text-xs uppercase text-zinc-400">Views</div>
       <nav className="flex flex-col gap-2 px-2">
-        <a className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-zinc-900" href="#">
+        <button
+          onClick={() => setView("conversations")}
+          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
+            view === "conversations" ? "bg-zinc-900" : "hover:bg-zinc-900"
+          }`}
+        >
           <MessageSquare size={16} />
-          <span>Chats</span>
-        </a>
-        <a className="flex items-center gap-2 rounded-md px-3 py-2 hover:bg-zinc-900" href="#">
-          <Settings size={16} />
-          <span>Settings</span>
-        </a>
+          <span>對話歷史</span>
+        </button>
+        <button
+          onClick={() => setView("personas")}
+          className={`flex items-center gap-2 rounded-md px-3 py-2 ${
+            view === "personas" ? "bg-zinc-900" : "hover:bg-zinc-900"
+          }`}
+        >
+          <Users size={16} />
+          <span>人物列表</span>
+        </button>
       </nav>
-      <div className="px-4 text-xs uppercase text-zinc-400">Personas</div>
-      <div className="flex-1 overflow-y-auto px-2">
-        <ul className="flex flex-col">
-          {filtered.map(p => (
-            <li
-              key={p.id}
-              className="relative"
-            >
-              <button
-                aria-label={`Select ${p.name}`}
-                onClick={e => {
-                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                  const gap = 8;
-                  const margin = 16;
-                  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-                  const availableW = r.width - gap * 2;
-                  const panelW = Math.max(220, Math.min(availableW, 300));
-                  const panelH = 420;
-                  const left = Math.max(margin, r.left + gap);
-                  const top = Math.min(Math.max(margin, r.top), vh - panelH - margin);
-                  setPinned({ id: p.id, top, left, w: panelW, h: panelH });
-                  setActive(p.id);
-                  onSelectPersona(p.id, p.name);
-                }}
-                className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left hover:bg-zinc-900 ${active === p.id ? "bg-zinc-900" : ""}`}
-              >
-                <span className="truncate">{p.name}</span>
-                <ChevronRight size={16} className="text-zinc-500" />
-              </button>
-            </li>
-          ))}
-          {filtered.length === 0 && (
-            <li className="px-3 py-2 text-sm text-zinc-500">No personas</li>
-          )}
-        </ul>
+      <div className="px-4 text-xs uppercase text-zinc-400">
+        {view === "personas" ? "Personas" : "Conversations"}
       </div>
+      {view === "personas" ? (
+        <div className="flex-1 overflow-y-auto px-2">
+          <ul className="flex flex-col">
+            {filtered.map(p => (
+              <li
+                key={p.id}
+                className="relative"
+              >
+                <button
+                  aria-label={`Select ${p.name}`}
+                  onClick={e => {
+                    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                    const gap = 8;
+                    const margin = 16;
+                    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+                    const availableW = r.width - gap * 2;
+                    const panelW = Math.max(220, Math.min(availableW, 300));
+                    const panelH = 420;
+                    const left = Math.max(margin, r.left + gap);
+                    const top = Math.min(Math.max(margin, r.top), vh - panelH - margin);
+                    setPinned({ id: p.id, top, left, w: panelW, h: panelH });
+                    setActive(p.id);
+                    onSelectPersona(p.id, p.name);
+                  }}
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left hover:bg-zinc-900 ${active === p.id ? "bg-zinc-900" : ""}`}
+                >
+                  <span className="truncate">{p.name}</span>
+                  <ChevronRight size={16} className="text-zinc-500" />
+                </button>
+              </li>
+            ))}
+            {filtered.length === 0 && (
+              <li className="px-3 py-2 text-sm text-zinc-500">No personas</li>
+            )}
+          </ul>
+        </div>
+      ) : (
+        <div className="flex-1 overflow-hidden">
+          <ConversationHistory />
+        </div>
+      )}
       
       {/* 用戶登入區域 */}
       <div className="border-t border-zinc-800 p-4">
