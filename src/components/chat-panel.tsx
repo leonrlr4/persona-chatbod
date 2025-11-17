@@ -4,8 +4,8 @@ import { Mic, Send, Bot } from "lucide-react";
 import { useChat } from "@/hooks/useChat";
 
 export default function ChatPanel({ personaId, personaName }: { personaId: string | null; personaName?: string | null }) {
-  const { messages: allMessages, isLoading, setCurrentPersona, sendMessage, currentConversationId, loadMoreMessages, error, errorCode, clearMessages, loadConversation, currentPersonaId, conversations } = useChat();
-  const activeKey = currentPersonaId || personaId || "default";
+  const { messages: allMessages, isLoading, setCurrentPersona, sendMessage, currentConversationId, currentPersonaId, loadMoreMessages, error, errorCode, clearMessages, loadConversation, conversations } = useChat();
+  const activeKey = currentConversationId || "default";
   const messages = allMessages[activeKey] || [];
   const derivedPersonaName = (() => {
     const c = conversations.find(c => c.id === currentConversationId);
@@ -43,11 +43,8 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     } else {
       setVirt(v => ({ ...v, start: 0, end: messages.length }));
     }
-  }, [messages]);
+  }, [messages.length, activeKey]);
 
-  useEffect(() => {
-    setCurrentPersona(personaId);
-  }, [personaId, setCurrentPersona]);
 
   function onScroll() {
     const el = listRef.current;
@@ -82,7 +79,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     setStatus("sending");
 
     try {
-      await sendMessage(text, personaId);
+      await sendMessage(text, currentPersonaId);
       setStatus("idle");
     } catch (err: any) {
       console.log("chat_ui_send_error", { message: String(err?.message || err) });
@@ -273,7 +270,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
                 <button
                   onClick={() => {
                     // 恢復默認值（清空目前視窗）
-                    clearMessages(personaId || null);
+                    clearMessages(currentPersonaId || null);
                   }}
                   className="rounded bg-zinc-800 px-2 py-1 hover:bg-zinc-700"
                 >

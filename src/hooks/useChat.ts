@@ -92,8 +92,8 @@ export const useChat = create<ChatState>((set, get) => ({
   },
 
   sendMessage: async (text: string, personaId: string | null) => {
-    const key = personaId || "default";
     const { currentConversationId } = get();
+    const key = currentConversationId || "default";
 
     const userMsg: Message = {
       id: `user-${Date.now()}`,
@@ -114,7 +114,6 @@ export const useChat = create<ChatState>((set, get) => ({
         ...state.messages,
         [key]: [...(state.messages[key] || []), userMsg, assistantMsg]
       },
-      isLoading: true,
       error: null
     }));
 
@@ -142,10 +141,22 @@ export const useChat = create<ChatState>((set, get) => ({
             try {
               localStorage.setItem(`chat_history:${key}`, JSON.stringify(msgs));
             } catch {}
+            const newConvId = data.conversationId || state.currentConversationId;
+            const needsMove = newConvId && newConvId !== state.currentConversationId && key === "default";
+
+            // Move messages from "default" to new conversation key
+            const finalMessages = needsMove
+              ? { ...updated, [newConvId]: msgs }
+              : updated;
+
+            // Refresh conversations if new conversation was created
+            if (newConvId && newConvId !== state.currentConversationId) {
+              get().fetchConversations();
+            }
+
             return {
-              messages: updated,
-              isLoading: false,
-              currentConversationId: data.conversationId || state.currentConversationId
+              messages: finalMessages,
+              currentConversationId: newConvId
             };
           });
           return;
@@ -190,9 +201,22 @@ export const useChat = create<ChatState>((set, get) => ({
         try {
           localStorage.setItem(`chat_history:${key}`, JSON.stringify(msgs));
         } catch {}
+        const newConvId = newConversationId || state.currentConversationId;
+        const needsMove = newConvId && newConvId !== state.currentConversationId && key === "default";
+
+        // Move messages from "default" to new conversation key
+        const finalMessages = needsMove
+          ? { ...state.messages, [newConvId]: msgs }
+          : state.messages;
+
+        // Refresh conversations if new conversation was created
+        if (newConvId && newConvId !== state.currentConversationId) {
+          get().fetchConversations();
+        }
+
         return {
-          isLoading: false,
-          currentConversationId: newConversationId || state.currentConversationId
+          messages: finalMessages,
+          currentConversationId: newConvId
         };
       });
 
@@ -207,7 +231,6 @@ export const useChat = create<ChatState>((set, get) => ({
         } catch {}
         return {
           messages: updated,
-          isLoading: false,
           error: String(err?.message || err)
         };
       });
@@ -254,7 +277,13 @@ export const useChat = create<ChatState>((set, get) => ({
       set({ error: String(err?.message || err), errorCode: code, isLoading: false });
     };
     try {
-      set({ isLoading: true, error: null, errorCode: null });
+      // Clear existing messages for this conversation to prevent duplication
+      set(state => ({
+        messages: { ...state.messages, [conversationId]: [] },
+        isLoading: true,
+        error: null,
+        errorCode: null
+      }));
 
       const db = await openDB();
       const hasIDB = !!db;
@@ -264,20 +293,31 @@ export const useChat = create<ChatState>((set, get) => ({
         const meta = await fetchConversationMeta(conversationId);
         personaId = meta?.personaId || null;
         initial = await getLatestMessages(conversationId, 50);
+        if (!meta || initial.length === 0) {
+          const fallback = await loadConversationFromServer(conversationId);
+          personaId = fallback.personaId;
+          initial = fallback.messages;
+          try {
+            await saveMessagesBulk(conversationId, initial);
+          } catch {}
+        }
       } else {
         const fallback = await loadConversationFromServer(conversationId);
         personaId = fallback.personaId;
         initial = fallback.messages;
-        try { await saveMessagesBulk(conversationId, initial); } catch {}
       }
 
-      const key = personaId || "default";
+      const key = conversationId;
+      // Deduplicate messages by id and timestamp
+      const uniqueMessages = Array.from(
+        new Map(initial.map(m => [`${m.id}-${m.timestamp}`, m])).values()
+      );
       const applyInitial = () => set(state => ({
-        messages: { ...state.messages, [key]: initial },
+        messages: { ...state.messages, [key]: uniqueMessages },
         currentPersonaId: personaId,
         currentConversationId: conversationId,
         isLoading: false,
-        paging: { ...state.paging, [conversationId]: { hasMore: true, lastLoadedTs: initial.length ? initial[0].timestamp || null : null, pageSize: 50 } }
+        paging: { ...state.paging, [conversationId]: { hasMore: true, lastLoadedTs: uniqueMessages.length ? uniqueMessages[0].timestamp || null : null, pageSize: 50 } }
       }));
       try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(applyInitial) : applyInitial(); } catch { applyInitial(); }
 
@@ -302,11 +342,16 @@ export const useChat = create<ChatState>((set, get) => ({
         set(state => ({ paging: { ...state.paging, [conversationId]: { ...p, hasMore: false } } }));
         return;
       }
-      const key = get().currentPersonaId || "default";
+      const key = conversationId;
       set(state => {
-        const merged = [...batch, ...(state.messages[key] || [])];
+        const existing = state.messages[key] || [];
+        const merged = [...batch, ...existing];
+        // Deduplicate by id and timestamp
+        const unique = Array.from(
+          new Map(merged.map(m => [`${m.id}-${m.timestamp}`, m])).values()
+        );
         return {
-          messages: { ...state.messages, [key]: merged },
+          messages: { ...state.messages, [key]: unique },
           paging: { ...state.paging, [conversationId]: { ...p, lastLoadedTs: batch[0].timestamp || p.lastLoadedTs } }
         };
       });
@@ -345,7 +390,7 @@ export const useChat = create<ChatState>((set, get) => ({
     set({ currentConversationId: null });
     const { currentPersonaId } = get();
     if (currentPersonaId) {
-      const key = currentPersonaId || "default";
+      const key = "default";
       set(state => ({
         messages: { ...state.messages, [key]: [] }
       }));
@@ -505,15 +550,44 @@ function queueProgressiveHydration(conversationId: string, key: string, initial:
   // progressively hydrate rest messages in idle time
   const run = async () => {
     try {
-      const before = initial.length ? initial[0].timestamp || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+      let before = initial.length ? initial[0].timestamp || Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
       let hasMore = true;
-      while (hasMore) {
+      let iterations = 0;
+      const maxIterations = 50; // Prevent infinite loop
+
+      while (hasMore && iterations < maxIterations) {
+        // Check if still viewing this conversation
+        const currentState = get();
+        if (currentState.currentConversationId !== conversationId) {
+          break; // Stop loading if user switched to another conversation
+        }
+
+        iterations++;
         const batch = await getOlderMessages(conversationId, before, 200);
         if (!batch.length) { hasMore = false; break; }
+
         set(state => {
-          const merged = [...batch, ...(state.messages[key] || [])];
-          return { messages: { ...state.messages, [key]: merged } };
+          // Double-check we're still viewing this conversation
+          if (state.currentConversationId !== conversationId) {
+            return state;
+          }
+
+          const existing = state.messages[key] || [];
+          const merged = [...batch, ...existing];
+          // Deduplicate by id and timestamp
+          const unique = Array.from(
+            new Map(merged.map(m => [`${m.id}-${m.timestamp}`, m])).values()
+          );
+          return { messages: { ...state.messages, [key]: unique } };
         });
+
+        // Update before to just before the oldest message timestamp to avoid duplicates
+        const oldestTimestamp = batch[0].timestamp;
+        if (oldestTimestamp && oldestTimestamp < before) {
+          before = oldestTimestamp - 1;
+        } else {
+          hasMore = false; // Prevent infinite loop if timestamp doesn't decrease
+        }
       }
     } catch {}
   };
