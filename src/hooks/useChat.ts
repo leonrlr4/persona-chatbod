@@ -557,7 +557,7 @@ function queueProgressiveHydration(conversationId: string, key: string, initial:
 
       while (hasMore && iterations < maxIterations) {
         // Check if still viewing this conversation
-        const currentState = get();
+        const currentState = useChat.getState();
         if (currentState.currentConversationId !== conversationId) {
           break; // Stop loading if user switched to another conversation
         }
@@ -566,7 +566,7 @@ function queueProgressiveHydration(conversationId: string, key: string, initial:
         const batch = await getOlderMessages(conversationId, before, 200);
         if (!batch.length) { hasMore = false; break; }
 
-        set(state => {
+        useChat.setState(state => {
           // Double-check we're still viewing this conversation
           if (state.currentConversationId !== conversationId) {
             return state;
