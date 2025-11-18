@@ -28,6 +28,231 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   const [virt, setVirt] = useState<{ start: number; end: number; itemH: number }>({ start: 0, end: 50, itemH: 56 });
   const lastSubmitRef = useRef<{ text: string; ts: number } | null>(null);
 
+  const [ttsSupported, setTtsSupported] = useState<boolean>(false);
+  const [ttsEnabled, setTtsEnabled] = useState<boolean>(true);
+  const [ttsRate, setTtsRate] = useState<number>(1);
+  const [ttsPitch, setTtsPitch] = useState<number>(1);
+  const [ttsVolume, setTtsVolume] = useState<number>(1);
+  const [ttsLang, setTtsLang] = useState<string>("");
+  const [ttsVoiceURI, setTtsVoiceURI] = useState<string>("");
+  const [ttsEngine, setTtsEngine] = useState<"browser" | "kokoro">("kokoro");
+  const [ttsError, setTtsError] = useState<string | null>(null);
+  const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const spokenLenRef = useRef<Record<string, number>>({});
+  const residualRef = useRef<Record<string, string>>({});
+  const lastAssistantIdRef = useRef<string | number | null>(null);
+  const audioQueueRef = useRef<HTMLAudioElement[]>([]);
+  const playingRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    try {
+      const ok = typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
+      setTtsSupported(ok);
+    } catch {
+      setTtsSupported(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!ttsSupported) return;
+    const loadVoices = () => {
+      const v = window.speechSynthesis.getVoices();
+      if (v && v.length) {
+        voicesRef.current = v;
+        if (!ttsLang) {
+          const prefer = v.find(x => x.lang && x.lang.toLowerCase().startsWith("zh"))?.lang || v[0].lang;
+          setTtsLang(prefer);
+        }
+        if (!ttsVoiceURI) {
+          const first = v.find(x => x.lang === (ttsLang || v[0].lang)) || v[0];
+          setTtsVoiceURI(first.voiceURI);
+        }
+      }
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      try { if (window.speechSynthesis.onvoiceschanged === loadVoices) window.speechSynthesis.onvoiceschanged = null as any; } catch {}
+    };
+  }, [ttsSupported]);
+
+  useEffect(() => {
+    if (!ttsSupported) return;
+    const v = voicesRef.current;
+    if (!v.length) return;
+    const current = v.find(x => x.voiceURI === ttsVoiceURI);
+    if (!current || current.lang !== ttsLang) {
+      const next = v.find(x => x.lang === ttsLang) || v[0];
+      setTtsVoiceURI(next.voiceURI);
+    }
+  }, [ttsLang, ttsSupported]);
+
+  function speakSegment(text: string) {
+    if (!ttsEnabled || !text.trim()) return;
+    if (ttsEngine === "browser") {
+      if (!ttsSupported) return;
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = ttsRate;
+      u.pitch = ttsPitch;
+      u.volume = ttsVolume;
+      const v = voicesRef.current.find(x => x.voiceURI === ttsVoiceURI);
+      if (v) u.voice = v;
+      if (ttsLang) u.lang = ttsLang;
+      window.speechSynthesis.speak(u);
+    } else {
+      enqueueKokoro(text);
+    }
+  }
+
+  function pauseTTS() {
+    if (ttsEngine === "browser") {
+      if (!ttsSupported) return;
+      window.speechSynthesis.pause();
+    } else {
+      const cur = audioQueueRef.current[0];
+      try { cur?.pause(); } catch {}
+    }
+  }
+
+  function resumeTTS() {
+    if (ttsEngine === "browser") {
+      if (!ttsSupported) return;
+      window.speechSynthesis.resume();
+    } else {
+      startNext();
+    }
+  }
+
+  function stopTTS() {
+    if (ttsEngine === "browser") {
+      if (!ttsSupported) return;
+      window.speechSynthesis.cancel();
+    } else {
+      try {
+        const cur = audioQueueRef.current[0];
+        if (cur) { try { cur.pause(); } catch {}; try { cur.currentTime = 0; } catch {}; }
+      } catch {}
+      audioQueueRef.current.forEach(a => { try { URL.revokeObjectURL(a.src); } catch {} });
+      audioQueueRef.current = [];
+      playingRef.current = false;
+    }
+    spokenLenRef.current = {};
+    residualRef.current = {};
+    lastAssistantIdRef.current = null;
+  }
+
+  async function enqueueKokoro(text: string) {
+    try {
+      const lang = mapKokoroLang(ttsLang);
+      const r = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, lang: lang || undefined, voice: ttsVoiceURI || undefined, speed: ttsRate, format: "wav" })
+      });
+      if (!r.ok) {
+        const msg = r.status === 501 ? "KOKORO_API_URL 未設定" : `TTS 錯誤 (${r.status})`;
+        setTtsError(msg);
+        return;
+      }
+      setTtsError(null);
+      if (!r.body) {
+        const buf = await r.arrayBuffer();
+        const blob = new Blob([buf], { type: r.headers.get("content-type") || "audio/wav" });
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.volume = Math.max(0, Math.min(1, ttsVolume));
+        audio.playbackRate = Math.max(0.5, Math.min(2, ttsRate));
+        audio.onended = () => {
+          try { URL.revokeObjectURL(url); } catch {}
+          audioQueueRef.current.shift();
+          playingRef.current = false;
+          startNext();
+        };
+        audioQueueRef.current.push(audio);
+        startNext();
+        return;
+      }
+      const reader = r.body.getReader();
+      const chunks: BlobPart[] = [];
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (value) chunks.push(value);
+      }
+      const blob = new Blob(chunks, { type: "audio/wav" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audio.volume = Math.max(0, Math.min(1, ttsVolume));
+      audio.playbackRate = Math.max(0.5, Math.min(2, ttsRate));
+      audio.onended = () => {
+        try { URL.revokeObjectURL(url); } catch {}
+        audioQueueRef.current.shift();
+        playingRef.current = false;
+        startNext();
+      };
+      audioQueueRef.current.push(audio);
+      startNext();
+    } catch {}
+  }
+
+  function startNext() {
+    if (playingRef.current) return;
+    const next = audioQueueRef.current[0];
+    if (next) {
+      playingRef.current = true;
+      next.play().catch(() => {
+        playingRef.current = false;
+        try { audioQueueRef.current.shift(); } catch {}
+        startNext();
+      });
+    }
+  }
+
+  function mapKokoroLang(s: string) {
+    const v = (s || "").toLowerCase();
+    if (!v) return "";
+    if (v.startsWith("zh")) return "z";
+    if (v.startsWith("en-gb")) return "b";
+    if (v.startsWith("en")) return "a";
+    if (v.startsWith("fr")) return "f";
+    if (v.startsWith("es")) return "e";
+    if (v.startsWith("pt")) return "p";
+    if (v.startsWith("ja") || v === "jp") return "j";
+    if (v.startsWith("hi")) return "h";
+    if (v.startsWith("it")) return "i";
+    return v;
+  }
+
+  useEffect(() => {
+    if (!ttsSupported || !ttsEnabled) return;
+    const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
+    if (!lastAssistant) return;
+    const id = lastAssistant.id ?? messages.lastIndexOf(lastAssistant);
+    lastAssistantIdRef.current = id;
+    const prevLen = spokenLenRef.current[String(id)] || 0;
+    const full = String(lastAssistant.content || "");
+    if (full.length <= prevLen) return;
+    const delta = full.slice(prevLen);
+    const buffer = (residualRef.current[String(id)] || "") + delta;
+    const parts: string[] = [];
+    let start = 0;
+    for (let i = 0; i < buffer.length; i++) {
+      const ch = buffer[i];
+      if (/[。．\.！？!\?\n]/.test(ch)) {
+        const seg = buffer.slice(start, i + 1);
+        if (seg.trim()) parts.push(seg);
+        start = i + 1;
+      }
+    }
+    const residual = buffer.slice(start);
+    residualRef.current[String(id)] = residual;
+    if (parts.length) {
+      const spokenTotal = parts.join("").length;
+      parts.forEach(p => speakSegment(p));
+      spokenLenRef.current[String(id)] = prevLen + spokenTotal;
+    }
+  }, [messages, ttsEnabled, ttsSupported, ttsRate, ttsPitch, ttsVolume, ttsLang, ttsVoiceURI]);
+
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
@@ -308,6 +533,71 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
           <button aria-label="Send" onClick={() => send(undefined, "button")} className="rounded-md p-2 hover:bg-zinc-700">
             <Send size={18} />
           </button>
+        </div>
+        <div className="mt-3 rounded-2xl bg-zinc-800 px-4 py-3">
+          {ttsEngine === "browser" && !ttsSupported ? (
+            <div className="text-xs text-zinc-400">裝置不支援語音朗讀</div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-2">
+              {ttsError ? (
+                <div className="rounded bg-red-900/40 px-2 py-1 text-xs text-red-300">{ttsError}</div>
+              ) : null}
+              <div className="flex items-center gap-1 text-xs">
+                <span>引擎</span>
+                <select value={ttsEngine} onChange={e => setTtsEngine(e.target.value as any)} className="rounded bg-zinc-700 px-2 py-1">
+                  <option value="browser">瀏覽器</option>
+                  <option value="kokoro">Kokoro</option>
+                </select>
+              </div>
+              <label className="flex items-center gap-2 text-xs">
+                <input type="checkbox" checked={ttsEnabled} onChange={e => setTtsEnabled(e.target.checked)} />
+                啟用TTS
+              </label>
+              <div className="flex items-center gap-1 text-xs">
+                <span>語速</span>
+                <input type="range" min={0.5} max={2} step={0.1} value={ttsRate} onChange={e => setTtsRate(Number(e.target.value))} />
+              </div>
+              {ttsEngine === "browser" && (
+                <div className="flex items-center gap-1 text-xs">
+                  <span>音調</span>
+                  <input type="range" min={0} max={2} step={0.1} value={ttsPitch} onChange={e => setTtsPitch(Number(e.target.value))} />
+                </div>
+              )}
+              <div className="flex items-center gap-1 text-xs">
+                <span>音量</span>
+                <input type="range" min={0} max={1} step={0.05} value={ttsVolume} onChange={e => setTtsVolume(Number(e.target.value))} />
+              </div>
+              <div className="flex items-center gap-1 text-xs">
+                <span>語系</span>
+                {ttsEngine === "browser" ? (
+                  <select value={ttsLang} onChange={e => setTtsLang(e.target.value)} className="rounded bg-zinc-700 px-2 py-1">
+                    {Array.from(new Set(voicesRef.current.map(v => v.lang))).map(l => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={ttsLang} onChange={e => setTtsLang(e.target.value)} placeholder="例如：en-us/zh" className="rounded bg-zinc-700 px-2 py-1 text-xs" />
+                )}
+              </div>
+              <div className="flex items-center gap-1 text-xs">
+                <span>語音</span>
+                {ttsEngine === "browser" ? (
+                  <select value={ttsVoiceURI} onChange={e => setTtsVoiceURI(e.target.value)} className="rounded bg-zinc-700 px-2 py-1">
+                    {voicesRef.current.filter(v => !ttsLang || v.lang === ttsLang).map(v => (
+                      <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={ttsVoiceURI} onChange={e => setTtsVoiceURI(e.target.value)} placeholder="Kokoro voice id（選填）" className="rounded bg-zinc-700 px-2 py-1 text-xs" />
+                )}
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <button onClick={pauseTTS} className="rounded-md px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600">暫停</button>
+                <button onClick={resumeTTS} className="rounded-md px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600">繼續</button>
+                <button onClick={stopTTS} className="rounded-md px-2 py-1 text-xs bg-zinc-700 hover:bg-zinc-600">停止</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
