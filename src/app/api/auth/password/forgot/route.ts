@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     await resets.insertOne({ token, userId: user.userId, createdAt: now(), expiresAt });
     // 郵件發送占位：需要設定 SMTP/郵件服務才能實際寄送
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 400 });
+  } catch (e: unknown) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 }

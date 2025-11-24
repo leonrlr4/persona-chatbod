@@ -15,14 +15,15 @@ export async function GET() {
     const embeddingDim = Number(process.env.EMBEDDING_DIM || "0");
     console.log("health", { mongo: true, openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim });
     return NextResponse.json({ ok: true, env: { mongo: true, openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim } });
-  } catch (e: any) {
+  } catch (e: unknown) {
     const openaiOk = !!process.env.OPENAI_API_KEY;
     const hfOk = !!process.env.HUGGINGFACE_API_KEY;
     const chatModel = process.env.CHAT_MODEL || "";
     const hfChatModel = process.env.HF_CHAT_MODEL || "";
     const embeddingModel = process.env.EMBEDDING_MODEL || "";
     const embeddingDim = Number(process.env.EMBEDDING_DIM || "0");
-    console.log("health_error", { openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim, error: String(e?.message || e) });
-    return NextResponse.json({ ok: false, error: String(e?.message || e), env: { mongo: false, openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim } }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    console.log("health_error", { openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim, error: msg });
+    return NextResponse.json({ ok: false, error: msg, env: { mongo: false, openai: openaiOk, hf: hfOk, chatModel, hfChatModel, embeddingModel, embeddingDim } }, { status: 500 });
   }
 }

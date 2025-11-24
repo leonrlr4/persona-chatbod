@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
 import { listPersonas } from "@/utils/api";
-import { Search, Bot, MessageSquare, Settings, Users, ChevronRight, LogIn, LogOut, User, Pin, X } from "lucide-react";
+import { Search, Bot, MessageSquare, Settings, Users, ChevronRight, LogIn, LogOut, User, Pin, X, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import AuthModal from "./auth-modal";
 import { ConversationHistory } from "./conversation-history";
+import UploadModal from "./upload-modal";
 
 type Persona = {
   id: string;
@@ -19,26 +20,38 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
   const [items, setItems] = useState<Persona[]>([]);
   const [active, setActive] = useState<string | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
   const { user, isAuthenticated, logout, refreshMe, shouldPromptLogin, ackPromptLogin } = useAuth();
   const hideTimer = useRef<number | null>(null);
   const [pinned, setPinned] = useState<{ id: string; top: number; left: number; w: number; h: number } | null>(null);
   const [view, setView] = useState<"personas" | "conversations">("personas");
 
   useEffect(() => {
-    listPersonas()
-      .then(r =>
-        setItems(
-          r.personas.map(p => ({
-            id: String(p.id),
-            name: String(p.name),
-            story: typeof p.story === "string" ? p.story : "",
-            traits: Array.isArray(p.traits) ? p.traits.map((t: any) => String(t)) : [],
-            beliefs: Array.isArray(p.beliefs) ? p.beliefs.map((b: any) => String(b)) : [],
-          }))
+    const reload = () => {
+      listPersonas()
+        .then(r =>
+          setItems(
+            (Array.isArray(r.personas) ? r.personas : []).map(p0 => {
+              const p = p0 as Record<string, unknown>;
+              return {
+                id: String(p.id || ""),
+                name: String(p.name || ""),
+                story: typeof p.story === "string" ? p.story : "",
+                traits: Array.isArray(p.traits) ? p.traits.map((t: unknown) => String(t)) : [],
+                beliefs: Array.isArray(p.beliefs) ? p.beliefs.map((b: unknown) => String(b)) : [],
+              };
+            })
+          )
         )
-      )
-      .catch(() => setItems([]));
+        .catch(() => setItems([]));
+    };
+    reload();
     refreshMe();
+    const onUpdated = () => reload();
+    try { window.addEventListener("personas:updated", onUpdated as unknown as EventListener); } catch {}
+    return () => {
+      try { window.removeEventListener("personas:updated", onUpdated as unknown as EventListener); } catch {}
+    };
   }, [refreshMe]);
 
   useEffect(() => {
@@ -50,7 +63,7 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
 
   useEffect(() => {
     if (shouldPromptLogin) {
-      setShowAuthModal(true);
+      setTimeout(() => setShowAuthModal(true), 0);
     }
   }, [shouldPromptLogin]);
 
@@ -157,6 +170,13 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
               <span>{user?.name}</span>
             </div>
             <button
+              onClick={() => setShowUploadModal(true)}
+              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
+            >
+              <Upload size={16} />
+              <span>上傳人物</span>
+            </button>
+            <button
               onClick={logout}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-zinc-300 hover:bg-zinc-900"
             >
@@ -178,6 +198,11 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
       <AuthModal
         isOpen={showAuthModal}
         onClose={() => { setShowAuthModal(false); ackPromptLogin(); }}
+      />
+
+      <UploadModal
+        isOpen={showUploadModal}
+        onClose={() => setShowUploadModal(false)}
       />
 
       {detailPersona && pinned && (

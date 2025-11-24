@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { generateCharacterEmbeddings, findSimilarCharacters } from "@/lib/vector-embeddings";
+import { rebuildPersonaEmbeddings, findSimilarCharacters } from "@/lib/vector-embeddings";
 import { verifyCsrf } from "@/lib/csrf";
 import { z } from "zod";
 
@@ -31,26 +31,26 @@ export async function POST(req: Request) {
       }, { status: 400 });
     }
 
-    const result = await generateCharacterEmbeddings();
+    const result = await rebuildPersonaEmbeddings();
     
-    if (result.success) {
+    if ((result as unknown as { ok?: boolean }).ok) {
       return NextResponse.json({ 
         ok: true, 
-        message: `成功生成 ${result.generatedCount} 個向量嵌入`,
-        characters: result.characters
+        message: `成功更新向量嵌入`,
+        updated: (result as unknown as { updated?: number }).updated
       });
     } else {
       return NextResponse.json({ 
         ok: false, 
-        error: result.message || "向量生成失敗"
+        error: (result as unknown as { message?: string }).message || "向量更新失敗"
       }, { status: 500 });
     }
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("向量生成錯誤:", error);
     return NextResponse.json({ 
       ok: false, 
-      error: error.message || "向量生成失敗"
+      error: error instanceof Error ? error.message : "向量生成失敗"
     }, { status: 400 });
   }
 }
@@ -70,22 +70,22 @@ export async function GET(req: Request) {
     }
 
     const similarCharacters = await findSimilarCharacters(characterId, limit);
-    
-    return NextResponse.json({ 
-      ok: true, 
+
+    return NextResponse.json({
+      ok: true,
       characterId,
       similarCharacters: similarCharacters.map(char => ({
-        character_id: char.character_id,
-        character_name: char.character_name,
+        id: char.id,
+        name: char.name,
         similarity: char.score || 0
       }))
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("相似搜尋錯誤:", error);
     return NextResponse.json({ 
       ok: false, 
-      error: error.message || "相似搜尋失敗"
+      error: error instanceof Error ? error.message : "相似搜尋失敗"
     }, { status: 400 });
   }
 }

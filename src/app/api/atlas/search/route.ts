@@ -18,43 +18,35 @@ export async function GET(req: Request) {
     const db = await getDb();
     
     // 找到目標人物的向量
-    const targetEmbedding = await db.collection('character_embeddings').findOne({ 
-      character_id: characterId 
+    const target = await db.collection('personas').findOne({ 
+      id: characterId 
     });
     
-    if (!targetEmbedding) {
+    const targetEmb = target ? (target as unknown as { embedding?: number[] }).embedding : undefined;
+    if (!target || !Array.isArray(targetEmb)) {
       return NextResponse.json({ 
         ok: false, 
         error: `找不到人物 ${characterId} 的向量嵌入`
       }, { status: 404 });
     }
 
-    console.log(`🔍 使用Atlas向量搜尋: ${targetEmbedding.character_name.chinese}`);
-
-    // 使用 MongoDB Atlas $vectorSearch (正確格式)
-    const similarCharacters = await db.collection('character_embeddings').aggregate([
+    const similarCharacters = await db.collection('personas').aggregate([
       {
         $vectorSearch: {
-          index: "character_vector_index",
+          index: "vector_index",
           path: "embedding",
-          queryVector: targetEmbedding.embedding,
+          queryVector: targetEmb,
           numCandidates: 100,
           limit: limit + 1
         }
       },
-      {
-        $match: {
-          character_id: { $ne: characterId }
-        }
-      },
-      {
-        $limit: limit
-      },
+      { $match: { id: { $ne: characterId } } },
+      { $limit: limit },
       {
         $project: {
           _id: 0,
-          character_id: 1,
-          character_name: 1,
+          id: 1,
+          name: 1,
           score: { $meta: "vectorSearchScore" }
         }
       }
@@ -67,17 +59,17 @@ export async function GET(req: Request) {
       characterId,
       method: "atlas_vector_search",
       similarCharacters: similarCharacters.map(char => ({
-        character_id: char.character_id,
-        character_name: char.character_name,
+        id: char.id,
+        name: char.name,
         similarity: char.score || 0
       }))
     });
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Atlas向量搜尋錯誤:", error);
     return NextResponse.json({ 
       ok: false, 
-      error: error.message || "向量搜尋失敗"
+      error: error instanceof Error ? error.message : "向量搜尋失敗"
     }, { status: 400 });
   }
 }

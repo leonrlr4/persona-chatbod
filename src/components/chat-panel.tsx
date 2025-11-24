@@ -35,9 +35,10 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   const [ttsVolume, setTtsVolume] = useState<number>(1);
   const [ttsLang, setTtsLang] = useState<string>("");
   const [ttsVoiceURI, setTtsVoiceURI] = useState<string>("");
-  const [ttsEngine, setTtsEngine] = useState<"browser" | "kokoro">("kokoro");
+  const [ttsEngine, setTtsEngine] = useState<"browser" | "kokoro">("browser");
   const [ttsError, setTtsError] = useState<string | null>(null);
   const voicesRef = useRef<SpeechSynthesisVoice[]>([]);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const spokenLenRef = useRef<Record<string, number>>({});
   const residualRef = useRef<Record<string, string>>({});
   const lastAssistantIdRef = useRef<string | number | null>(null);
@@ -47,9 +48,9 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   useEffect(() => {
     try {
       const ok = typeof window !== "undefined" && "speechSynthesis" in window && "SpeechSynthesisUtterance" in window;
-      setTtsSupported(ok);
+      setTimeout(() => setTtsSupported(ok), 0);
     } catch {
-      setTtsSupported(false);
+      setTimeout(() => setTtsSupported(false), 0);
     }
   }, []);
 
@@ -59,6 +60,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
       const v = window.speechSynthesis.getVoices();
       if (v && v.length) {
         voicesRef.current = v;
+        setVoices(v);
         if (!ttsLang) {
           const prefer = v.find(x => x.lang && x.lang.toLowerCase().startsWith("zh"))?.lang || v[0].lang;
           setTtsLang(prefer);
@@ -72,7 +74,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     loadVoices();
     window.speechSynthesis.onvoiceschanged = loadVoices;
     return () => {
-      try { if (window.speechSynthesis.onvoiceschanged === loadVoices) window.speechSynthesis.onvoiceschanged = null as any; } catch {}
+      try { if (window.speechSynthesis.onvoiceschanged === loadVoices) window.speechSynthesis.onvoiceschanged = null; } catch {}
     };
   }, [ttsSupported]);
 
@@ -83,7 +85,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     const current = v.find(x => x.voiceURI === ttsVoiceURI);
     if (!current || current.lang !== ttsLang) {
       const next = v.find(x => x.lang === ttsLang) || v[0];
-      setTtsVoiceURI(next.voiceURI);
+      setTimeout(() => setTtsVoiceURI(next.voiceURI), 0);
     }
   }, [ttsLang, ttsSupported]);
 
@@ -173,13 +175,19 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
         return;
       }
       const reader = r.body.getReader();
-      const chunks: BlobPart[] = [];
+      const chunks: Uint8Array[] = [];
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         if (value) chunks.push(value);
       }
-      const blob = new Blob(chunks, { type: "audio/wav" });
+      const blobParts: ArrayBuffer[] = chunks.map(c => {
+        const buf = new ArrayBuffer(c.byteLength);
+        const view = new Uint8Array(buf);
+        view.set(c);
+        return buf;
+      });
+      const blob = new Blob(blobParts, { type: "audio/wav" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audio.volume = Math.max(0, Math.min(1, ttsVolume));
@@ -264,9 +272,14 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
         const visible = Math.max(10, Math.ceil(viewport / h) + 20);
         setVirt(v => ({ ...v, end: v.start + visible }));
       };
-      try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(calc) : setTimeout(calc, 0); } catch { setTimeout(calc, 0); }
+      try {
+        const win = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
+        win.requestIdleCallback ? win.requestIdleCallback(calc) : setTimeout(calc, 0);
+      } catch { setTimeout(calc, 0); }
     } else {
-      setVirt(v => ({ ...v, start: 0, end: messages.length }));
+      setTimeout(() => {
+        setVirt(v => ({ ...v, start: 0, end: messages.length }));
+      }, 0);
     }
   }, [messages.length, activeKey]);
 
@@ -306,8 +319,9 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     try {
       await sendMessage(text, currentPersonaId);
       setStatus("idle");
-    } catch (err: any) {
-      console.log("chat_ui_send_error", { message: String(err?.message || err) });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.log("chat_ui_send_error", { message: msg });
       setStatus("error");
     }
   }
@@ -351,7 +365,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
           } else {
             setStatus("error");
           }
-        } catch (err: any) {
+        } catch (err: unknown) {
           setStatus("error");
         }
       };
@@ -364,7 +378,8 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
 
   async function setupVAD(stream: MediaStream) {
     try {
-      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const AC = (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext || window.AudioContext;
+      const ctx = new AC();
       audioCtxRef.current = ctx;
       try { await ctx.resume(); } catch {}
       const source = ctx.createMediaStreamSource(stream);
@@ -544,7 +559,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
               ) : null}
               <div className="flex items-center gap-1 text-xs">
                 <span>引擎</span>
-                <select value={ttsEngine} onChange={e => setTtsEngine(e.target.value as any)} className="rounded bg-zinc-700 px-2 py-1">
+                <select value={ttsEngine} onChange={e => setTtsEngine(e.target.value as "browser" | "kokoro")} className="rounded bg-zinc-700 px-2 py-1">
                   <option value="browser">瀏覽器</option>
                   <option value="kokoro">Kokoro</option>
                 </select>
@@ -571,7 +586,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
                 <span>語系</span>
                 {ttsEngine === "browser" ? (
                   <select value={ttsLang} onChange={e => setTtsLang(e.target.value)} className="rounded bg-zinc-700 px-2 py-1">
-                    {Array.from(new Set(voicesRef.current.map(v => v.lang))).map(l => (
+                    {Array.from(new Set(voices.map(v => v.lang))).map(l => (
                       <option key={l} value={l}>{l}</option>
                     ))}
                   </select>
@@ -583,7 +598,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
                 <span>語音</span>
                 {ttsEngine === "browser" ? (
                   <select value={ttsVoiceURI} onChange={e => setTtsVoiceURI(e.target.value)} className="rounded bg-zinc-700 px-2 py-1">
-                    {voicesRef.current.filter(v => !ttsLang || v.lang === ttsLang).map(v => (
+                    {voices.filter(v => !ttsLang || v.lang === ttsLang).map(v => (
                       <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
                     ))}
                   </select>

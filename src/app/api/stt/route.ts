@@ -40,8 +40,8 @@ export async function POST(req: Request) {
     const res = NextResponse.json({ ok: true, text });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
     return res;
-  } catch (e: any) {
-    const res = NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 500 });
+  } catch (e: unknown) {
+    const res = NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
     res.headers.set("Server-Timing", `app;dur=${Date.now()-t0}`);
     return res;
   }

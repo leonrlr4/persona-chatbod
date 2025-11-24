@@ -25,10 +25,10 @@ export async function POST(req: Request) {
       { $addFields: { score: { $meta: "vectorSearchScore" } } },
       { $project: { embedding: 0 } },
     ];
-    const cursor = col.aggregate(pipeline as any);
+    const cursor = col.aggregate(pipeline as unknown as any[]);
     const results = await cursor.toArray();
     return NextResponse.json({ ok: true, results });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, error: String(e?.message || e) }, { status: 400 });
+  } catch (e: unknown) {
+    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 400 });
   }
 }

@@ -56,8 +56,7 @@ export default function AuthModal({ isOpen, onClose, defaultTab = "login" }: Aut
         setFormData({ name: "", email: "", password: "", confirmPassword: "" });
         router.push("/");
       } else {
-        const stateErr = (typeof (useAuth as any).getState === "function") ? (useAuth as any).getState().lastError : null;
-        alert(stateErr || lastError || (activeTab === "login" ? "登入失敗" : "註冊失敗"));
+        alert(lastError || (activeTab === "login" ? "登入失敗" : "註冊失敗"));
       }
     } catch (error) {
       console.error("Auth error:", error);

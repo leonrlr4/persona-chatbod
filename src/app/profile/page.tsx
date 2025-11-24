@@ -15,8 +15,10 @@ export default function ProfilePage() {
       router.push("/");
       return;
     }
-    setName(user?.name || "");
-    setLoading(false);
+    setTimeout(() => {
+      setName(user?.name || "");
+      setLoading(false);
+    }, 0);
   }, [isAuthenticated, user, router]);
 
   const save = async () => {

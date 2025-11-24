@@ -49,8 +49,9 @@ export const useAuth = create<AuthState>((set, get) => ({
       }
       set({ lastError: res.error || "登入失敗" });
       return false;
-    } catch (error: any) {
-      set({ lastError: String(error?.message || error) });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      set({ lastError: msg });
       return false;
     }
   },
@@ -70,8 +71,9 @@ export const useAuth = create<AuthState>((set, get) => ({
       }
       set({ lastError: res.error || "註冊失敗" });
       return false;
-    } catch (error: any) {
-      set({ lastError: String(error?.message || error) });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error);
+      set({ lastError: msg });
       return false;
     }
   },

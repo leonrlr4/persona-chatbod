@@ -6,7 +6,7 @@ let db: Db | null = null;
 export async function getDb() {
   if (db) return db;
   const uri = process.env.MONGODB_URI || "";
-  const name = process.env.MONGODB_DB || "voice_chatbot";
+  const name = process.env.MONGODB_DB || "persona";
   if (!uri) throw new Error("MONGODB_URI missing");
   if (!client) client = new MongoClient(uri);
   if (!db) {

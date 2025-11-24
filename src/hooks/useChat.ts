@@ -220,7 +220,7 @@ export const useChat = create<ChatState>((set, get) => ({
         };
       });
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       const errorMsg = { ...assistantMsg, content: "抱歉，發生錯誤。請稍後再試。" };
       set(state => {
         const msgs = [...(state.messages[key] || [])];
@@ -231,7 +231,7 @@ export const useChat = create<ChatState>((set, get) => ({
         } catch {}
         return {
           messages: updated,
-          error: String(err?.message || err)
+          error: err instanceof Error ? err.message : String(err)
         };
       });
     }
@@ -260,21 +260,22 @@ export const useChat = create<ChatState>((set, get) => ({
       const data = await res.json();
       const apply = () => set({ conversations: data.conversations || [] });
       try {
-        (window as any).requestIdleCallback ? (window as any).requestIdleCallback(apply) : apply();
+        const win = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
+        win.requestIdleCallback ? win.requestIdleCallback(apply) : apply();
       } catch {
         apply();
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error fetching conversations:", err);
-      set({ error: String(err?.message || err) });
+      set({ error: err instanceof Error ? err.message : String(err) });
     }
   },
 
   loadConversation: async (conversationId: string) => {
-    const setError = (err: any) => {
-      const domErrName = String((err && err.name) || "");
+    const setError = (err: unknown) => {
+      const domErrName = err instanceof Error ? String(err.name) : "";
       const code = domErrName === "UnknownError" ? 3 : domErrName === "VersionError" ? 11 : null;
-      set({ error: String(err?.message || err), errorCode: code, isLoading: false });
+      set({ error: err instanceof Error ? err.message : String(err), errorCode: code, isLoading: false });
     };
     try {
       // Clear existing messages for this conversation to prevent duplication
@@ -319,14 +320,17 @@ export const useChat = create<ChatState>((set, get) => ({
         isLoading: false,
         paging: { ...state.paging, [conversationId]: { hasMore: true, lastLoadedTs: uniqueMessages.length ? uniqueMessages[0].timestamp || null : null, pageSize: 50 } }
       }));
-      try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(applyInitial) : applyInitial(); } catch { applyInitial(); }
+      try {
+        const win = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
+        win.requestIdleCallback ? win.requestIdleCallback(applyInitial) : applyInitial();
+      } catch { applyInitial(); }
 
       if (hasIDB) {
         const total = await countMessages(conversationId);
         if (total <= 100) return;
         queueProgressiveHydration(conversationId, key, initial);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error loading conversation:", err);
       setError(err);
     }
@@ -355,11 +359,11 @@ export const useChat = create<ChatState>((set, get) => ({
           paging: { ...state.paging, [conversationId]: { ...p, lastLoadedTs: batch[0].timestamp || p.lastLoadedTs } }
         };
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error loading more messages:", err);
-      const domErrName = String((err && err.name) || "");
+      const domErrName = err instanceof Error ? String(err.name) : "";
       const code = domErrName === "UnknownError" ? 3 : domErrName === "VersionError" ? 11 : null;
-      set({ error: String(err?.message || err), errorCode: code });
+      set({ error: err instanceof Error ? err.message : String(err), errorCode: code });
     }
   },
 
@@ -380,9 +384,9 @@ export const useChat = create<ChatState>((set, get) => ({
 
       // refresh conversations
       await get().fetchConversations();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Error deleting conversation:", err);
-      set({ error: String(err?.message || err) });
+      set({ error: err instanceof Error ? err.message : String(err) });
     }
   },
 
@@ -592,7 +596,8 @@ function queueProgressiveHydration(conversationId: string, key: string, initial:
     } catch {}
   };
   try {
-    (window as any).requestIdleCallback ? (window as any).requestIdleCallback(run) : setTimeout(run, 0);
+    const win = window as unknown as { requestIdleCallback?: (cb: () => void) => void };
+    win.requestIdleCallback ? win.requestIdleCallback(run) : setTimeout(run, 0);
   } catch {
     setTimeout(run, 0);
   }
@@ -610,7 +615,7 @@ function createParserWorker(): Worker | null {
   }
 }
 
-function parseInWorker(worker: Worker, text: string): Promise<any> {
+function parseInWorker(worker: Worker, text: string): Promise<unknown> {
   return new Promise(resolve => {
     const onMsg = (ev: MessageEvent) => {
       try { worker.removeEventListener("message", onMsg); } catch {}
