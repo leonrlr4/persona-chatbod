@@ -118,52 +118,6 @@ export const useChat = create<ChatState>((set, get) => ({
     }));
 
     try {
-      // Try non-streaming API first
-      const hfRes = await fetch("/api/chat/hf", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          personaId,
-          text,
-          conversationId: currentConversationId
-        })
-      });
-
-      if (hfRes.ok) {
-        const data = await hfRes.json();
-        if (data.ok && data.response) {
-          const finalMsg = { ...assistantMsg, content: data.response };
-          set(state => {
-            const msgs = [...(state.messages[key] || [])];
-            msgs[msgs.length - 1] = finalMsg;
-            const updated = { ...state.messages, [key]: msgs };
-            // Save to localStorage
-            try {
-              localStorage.setItem(`chat_history:${key}`, JSON.stringify(msgs));
-            } catch {}
-            const newConvId = data.conversationId || state.currentConversationId;
-            const needsMove = newConvId && newConvId !== state.currentConversationId && key === "default";
-
-            // Move messages from "default" to new conversation key
-            const finalMessages = needsMove
-              ? { ...updated, [newConvId]: msgs }
-              : updated;
-
-            // Refresh conversations if new conversation was created
-            if (newConvId && newConvId !== state.currentConversationId) {
-              get().fetchConversations();
-            }
-
-            return {
-              messages: finalMessages,
-              currentConversationId: newConvId
-            };
-          });
-          return;
-        }
-      }
-
-      // Fallback to streaming
       const streamRes = await fetch("/api/chat/stream", {
         method: "POST",
         headers: { "content-type": "application/json" },

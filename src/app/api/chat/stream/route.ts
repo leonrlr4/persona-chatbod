@@ -3,6 +3,7 @@ import { getDb } from "@/lib/mongo";
 import { ChatDeepSeek } from "@langchain/deepseek";
 import { verifySession } from "@/lib/session";
 import { embedText } from "@/lib/embeddings";
+import { buildPersonaPromptBase } from "@/lib/personaPrompt";
 
 export const runtime = "nodejs";
 
@@ -94,7 +95,7 @@ export async function POST(req: Request) {
         if (!allowed) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
-        systemPrompt = `以人物「${p.name}」的口吻回應。背景：${p.story}. 特質：${(p.traits||[]).join(', ')}. 信念：${(p.beliefs||[]).join(', ')}.`;
+        systemPrompt = buildPersonaPromptBase(p as unknown as { name?: string; story?: string; traits?: string[]; beliefs?: string[] });
       } else {
         console.log("chat_stream_persona_not_found", { id: personaId });
         return NextResponse.json({ ok: false, error: "人物不存在" }, { status: 400 });
