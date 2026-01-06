@@ -24,7 +24,8 @@
       "WebFetch(domain:vercel.com)",
       "WebSearch",
       "Bash(ssh bible-persona:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(pnpm install:*)"
     ],
     "deny": [],
     "ask": []
