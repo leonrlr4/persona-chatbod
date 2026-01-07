@@ -266,31 +266,53 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     if (ttsEngine === "browser" && !ttsSupported) return;
     const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
     if (!lastAssistant) return;
-    const id = lastAssistant.id ?? messages.lastIndexOf(lastAssistant);
-    lastAssistantIdRef.current = id;
-    const prevLen = spokenLenRef.current[String(id)] || 0;
+    
+    // Use a stable ID based on message id
+    const id = lastAssistant.id || "";
+    if (!id) return; // Skip if no stable ID
+    
+    // Reset tracking when switching to a different message
+    if (lastAssistantIdRef.current !== id) {
+      spokenLenRef.current = {};
+      residualRef.current = {};
+      lastAssistantIdRef.current = id;
+    }
+    
     const full = String(lastAssistant.content || "");
-    if (full.length <= prevLen) return;
-    const delta = full.slice(prevLen);
-    const buffer = (residualRef.current[String(id)] || "") + delta;
+    const processedLen = spokenLenRef.current[id] || 0;
+    
+    // Nothing new to process
+    if (full.length <= processedLen) return;
+    
+    // Get only the new content since last processing
+    const newContent = full.slice(processedLen);
+    const buffer = (residualRef.current[id] || "") + newContent;
+    
+    // Split buffer into complete sentences
     const parts: string[] = [];
-    let start = 0;
+    let lastSplitIndex = 0;
     for (let i = 0; i < buffer.length; i++) {
       const ch = buffer[i];
       if (/[。．\.！？!\?\n]/.test(ch)) {
-        const seg = buffer.slice(start, i + 1);
-        if (seg.trim()) parts.push(seg);
-        start = i + 1;
+        const seg = buffer.slice(lastSplitIndex, i + 1).trim();
+        if (seg) parts.push(seg);
+        lastSplitIndex = i + 1;
       }
     }
-    const residual = buffer.slice(start);
-    residualRef.current[String(id)] = residual;
-    if (parts.length) {
-      const spokenTotal = parts.join("").length;
+    
+    // Store the incomplete sentence for next time
+    const newResidual = buffer.slice(lastSplitIndex);
+    residualRef.current[id] = newResidual;
+    
+    // Update processed length to include ALL new content (both spoken and residual)
+    // This is the key fix: we track how much of the original content we've processed
+    spokenLenRef.current[id] = full.length;
+    
+    // Speak the complete sentences
+    if (parts.length > 0) {
       parts.forEach(p => speakSegment(p));
-      spokenLenRef.current[String(id)] = prevLen + spokenTotal;
     }
-  }, [messages, ttsEnabled, ttsSupported, ttsEngine, ttsRate, ttsPitch, ttsVolume, ttsLang, ttsVoiceURI]);
+  }, [messages, ttsEnabled, ttsSupported, ttsEngine]);
 
   useEffect(() => {
     const el = listRef.current;

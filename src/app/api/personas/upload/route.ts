@@ -100,7 +100,7 @@ export async function POST(req: Request) {
       const ntTypology = String(r["新約預表論"] || "").trim();
       const otTheology = String(r["舊約神學視角"] || "").trim();
       const ntDialogue = String(r["新約對話點"] || "").trim();
-      const perspectiveTags = String(r["人物視角標籤"] || "").trim();
+      const perspectiveTags = String(r["人物視角標籤"] || "").split(/[,，\n]+/).map(s => s.trim()).filter(Boolean);
 
       const story = [desc, refs, behaviors, challenges, responses, lessons].filter(Boolean).join("\n\n");
       const traits: string[] = extractTraits(r);
