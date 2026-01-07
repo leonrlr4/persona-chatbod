@@ -61,13 +61,23 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
       if (v && v.length) {
         voicesRef.current = v;
         setVoices(v);
-        if (!ttsLang) {
-          const prefer = v.find(x => x.lang && x.lang.toLowerCase().startsWith("zh"))?.lang || v[0].lang;
-          setTtsLang(prefer);
-        }
-        if (!ttsVoiceURI) {
-          const first = v.find(x => x.lang === (ttsLang || v[0].lang)) || v[0];
-          setTtsVoiceURI(first.voiceURI);
+
+        // 優先選擇中文語音，如果沒有則使用第一個
+        const preferredLang = v.find(x => x.lang && x.lang.toLowerCase().startsWith("zh"))?.lang || v[0]?.lang;
+
+        if (!ttsLang && preferredLang) {
+          setTtsLang(preferredLang);
+          // 同時設置對應的語音
+          const matchingVoice = v.find(x => x.lang === preferredLang);
+          if (matchingVoice) {
+            setTtsVoiceURI(matchingVoice.voiceURI);
+          }
+        } else if (!ttsVoiceURI && ttsLang) {
+          // 如果已有語言但沒有語音，設置對應語音
+          const matchingVoice = v.find(x => x.lang === ttsLang) || v[0];
+          if (matchingVoice) {
+            setTtsVoiceURI(matchingVoice.voiceURI);
+          }
         }
       }
     };
@@ -76,7 +86,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
     return () => {
       try { if (window.speechSynthesis.onvoiceschanged === loadVoices) window.speechSynthesis.onvoiceschanged = null; } catch {}
     };
-  }, [ttsSupported]);
+  }, [ttsSupported, ttsLang, ttsVoiceURI]);
 
   useEffect(() => {
     if (!ttsSupported) return;
@@ -92,15 +102,35 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   function speakSegment(text: string) {
     if (!ttsEnabled || !text.trim()) return;
     if (ttsEngine === "browser") {
-      if (!ttsSupported) return;
-      const u = new SpeechSynthesisUtterance(text);
-      u.rate = ttsRate;
-      u.pitch = ttsPitch;
-      u.volume = ttsVolume;
-      const v = voicesRef.current.find(x => x.voiceURI === ttsVoiceURI);
-      if (v) u.voice = v;
-      if (ttsLang) u.lang = ttsLang;
-      window.speechSynthesis.speak(u);
+      if (!ttsSupported) {
+        console.warn("TTS not supported in this browser");
+        return;
+      }
+      try {
+        const u = new SpeechSynthesisUtterance(text);
+        u.rate = ttsRate;
+        u.pitch = ttsPitch;
+        u.volume = ttsVolume;
+        const v = voicesRef.current.find(x => x.voiceURI === ttsVoiceURI);
+        if (v) {
+          u.voice = v;
+        } else {
+          console.warn("TTS voice not found, using default", { ttsVoiceURI, availableVoices: voicesRef.current.length });
+        }
+        if (ttsLang) u.lang = ttsLang;
+
+        // 添加錯誤處理
+        u.onerror = (event) => {
+          console.error("TTS error:", event);
+          setTtsError(`語音播放錯誤: ${event.error}`);
+        };
+
+        console.log("TTS speaking:", { text: text.slice(0, 50), lang: u.lang, voice: v?.name });
+        window.speechSynthesis.speak(u);
+      } catch (err) {
+        console.error("TTS speak error:", err);
+        setTtsError(err instanceof Error ? err.message : String(err));
+      }
     } else {
       enqueueKokoro(text);
     }
@@ -232,7 +262,8 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
   }
 
   useEffect(() => {
-    if (!ttsSupported || !ttsEnabled) return;
+    if (!ttsEnabled) return;
+    if (ttsEngine === "browser" && !ttsSupported) return;
     const lastAssistant = [...messages].reverse().find(m => m.role === "assistant");
     if (!lastAssistant) return;
     const id = lastAssistant.id ?? messages.lastIndexOf(lastAssistant);
@@ -259,7 +290,7 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
       parts.forEach(p => speakSegment(p));
       spokenLenRef.current[String(id)] = prevLen + spokenTotal;
     }
-  }, [messages, ttsEnabled, ttsSupported, ttsRate, ttsPitch, ttsVolume, ttsLang, ttsVoiceURI]);
+  }, [messages, ttsEnabled, ttsSupported, ttsEngine, ttsRate, ttsPitch, ttsVolume, ttsLang, ttsVoiceURI]);
 
   useEffect(() => {
     const el = listRef.current;
@@ -598,8 +629,8 @@ export default function ChatPanel({ personaId, personaName }: { personaId: strin
                 <span>語音</span>
                 {ttsEngine === "browser" ? (
                   <select value={ttsVoiceURI} onChange={e => setTtsVoiceURI(e.target.value)} className="rounded bg-zinc-700 px-2 py-1">
-                    {voices.filter(v => !ttsLang || v.lang === ttsLang).map(v => (
-                      <option key={v.voiceURI} value={v.voiceURI}>{v.name}</option>
+                    {voices.filter(v => !ttsLang || v.lang === ttsLang).map((v, idx) => (
+                      <option key={`${v.voiceURI}-${v.name}-${v.lang}-${idx}`} value={v.voiceURI}>{v.name}</option>
                     ))}
                   </select>
                 ) : (

@@ -4,6 +4,7 @@ import { ChatDeepSeek } from "@langchain/deepseek";
 import { verifySession } from "@/lib/session";
 import { embedText } from "@/lib/embeddings";
 import { buildPersonaPromptBase } from "@/lib/personaPrompt";
+import { webSearch, formatSearchResults, needsWebSearch, detectLanguage } from "@/lib/webSearch";
 
 export const runtime = "nodejs";
 
@@ -73,7 +74,18 @@ export async function POST(req: Request) {
     const personaId: string | null = body.personaId || null;
     const conversationId: string | null = body.conversationId || null;
     const userText: string = String(body.text || "");
-    console.log("chat_stream_request", { personaId, conversationId, userId, textLen: userText.length, textPreview: userText.slice(0, 100) });
+
+    // 偵測用戶語言（中文或英文）
+    const userLang = detectLanguage(userText);
+    console.log("chat_stream_request", {
+      personaId,
+      conversationId,
+      userId,
+      userLang,
+      textLen: userText.length,
+      textPreview: userText.slice(0, 100)
+    });
+
     if (!userText) {
       console.log("chat_stream_text_missing");
       return NextResponse.json({ ok: false, error: "text missing" }, { status: 400 });
@@ -84,18 +96,24 @@ export async function POST(req: Request) {
     }
 
     let systemPrompt = "";
+    let personaName = "";
     try {
       console.log("chat_stream_persona_lookup_start", { personaId });
       const db = await getDb();
       const p = await db.collection("personas").findOne({ id: personaId });
       if (p) {
-        console.log("chat_stream_persona_found", { id: personaId, name: p.name });
+        personaName = String(p.name || "");
+        console.log("chat_stream_persona_found", { id: personaId, name: personaName });
         const vis = String((p as unknown as { visibility?: string }).visibility || "public");
         const allowed = vis === "public" || ((p as unknown as { ownerUserId?: string }).ownerUserId && userId && String((p as unknown as { ownerUserId?: string }).ownerUserId) === String(userId));
         if (!allowed) {
           return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
         }
-        systemPrompt = buildPersonaPromptBase(p as unknown as { name?: string; story?: string; traits?: string[]; beliefs?: string[] });
+        // 建立 System Prompt，並根據用戶語言加入語言指令
+        systemPrompt = buildPersonaPromptBase(
+          p as unknown as { name?: string; story?: string; traits?: string[]; beliefs?: string[] },
+          userLang
+        );
       } else {
         console.log("chat_stream_persona_not_found", { id: personaId });
         return NextResponse.json({ ok: false, error: "人物不存在" }, { status: 400 });
@@ -119,6 +137,27 @@ export async function POST(req: Request) {
       ragContext = lines.length ? `參考資料：\n${lines.join("\n")}` : "";
     } catch {}
     if (ragContext) systemPrompt = `${systemPrompt}\n${ragContext}`;
+
+    // 網路搜尋：使用 LLM 智慧判斷是否需要最新資訊
+    let webSearchContext = "";
+    const shouldSearch = await needsWebSearch(userText, personaName);
+    if (shouldSearch) {
+      console.log("websearch_triggered", { query: userText.slice(0, 100), persona: personaName });
+      try {
+        const searchResults = await webSearch(userText, 3);
+        if (searchResults.length > 0) {
+          webSearchContext = formatSearchResults(searchResults);
+          console.log("websearch_context_added", { resultsCount: searchResults.length });
+        } else {
+          console.log("websearch_no_results");
+        }
+      } catch (searchError) {
+        const searchMsg = searchError instanceof Error ? searchError.message : String(searchError);
+        console.error("websearch_failed", { message: searchMsg });
+        // 搜尋失敗不影響整體回答，繼續執行
+      }
+    }
+    if (webSearchContext) systemPrompt = `${systemPrompt}\n${webSearchContext}`;
 
     if (!personaId) {
       console.log("chat_stream_persona_required");
@@ -146,7 +185,7 @@ export async function POST(req: Request) {
           const c = (chunk as { content?: unknown })?.content ?? "";
           const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((v: unknown) => (typeof v === "string" ? v : String((v as { text?: string })?.text || ""))).join("") : "";
           if (text) {
-            console.log("chat_stream_chunk", { len: text.length, preview: text.slice(0, 50) });
+            // console.log("chat_stream_chunk", { len: text.length, preview: text.slice(0, 50) });
             fullResponse += text;
             yield encoder.encode(text);
           } else {
@@ -162,7 +201,7 @@ export async function POST(req: Request) {
     const iter = makeIterator();
     const stream = new ReadableStream({
       async pull(controller) {
-        console.log("chat_stream_pull");
+        // console.log("chat_stream_pull");
         const { value, done } = await (iter as unknown as AsyncIterator<Uint8Array>).next();
         if (done) {
           console.log("chat_stream_done");
@@ -170,7 +209,7 @@ export async function POST(req: Request) {
           savedConversationId = await saveConversation(personaId, userText, fullResponse, userId || undefined, conversationId || undefined);
           controller.close();
         } else {
-          console.log("chat_stream_enqueue", { size: (value && (value.byteLength || 0)) || 0 });
+          // console.log("chat_stream_enqueue", { size: (value && (value.byteLength || 0)) || 0 });
           controller.enqueue(value);
         }
       },

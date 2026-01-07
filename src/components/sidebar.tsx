@@ -13,6 +13,10 @@ type Persona = {
   story?: string;
   traits?: string[];
   beliefs?: string[];
+  ntTypology?: string;
+  otTheology?: string;
+  ntDialogue?: string;
+  perspectiveTags?: string[];
 };
 
 export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: string, name: string) => void }) {
@@ -39,6 +43,10 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
                 story: typeof p.story === "string" ? p.story : "",
                 traits: Array.isArray(p.traits) ? p.traits.map((t: unknown) => String(t)) : [],
                 beliefs: Array.isArray(p.beliefs) ? p.beliefs.map((b: unknown) => String(b)) : [],
+                ntTypology: typeof p.ntTypology === "string" ? p.ntTypology : undefined,
+                otTheology: typeof p.otTheology === "string" ? p.otTheology : undefined,
+                ntDialogue: typeof p.ntDialogue === "string" ? p.ntDialogue : undefined,
+                perspectiveTags: Array.isArray(p.perspectiveTags) ? p.perspectiveTags.map((t: unknown) => String(t)) : undefined,
               };
             })
           )
@@ -257,6 +265,34 @@ export default function Sidebar({ onSelectPersona }: { onSelectPersona: (id: str
                     <span key={b} className="rounded bg-zinc-800 px-2 py-0.5 text-[11px] text-zinc-300">{b}</span>
                   ))}
                 </div>
+              </div>
+            )}
+            {!!(detailPersona.perspectiveTags && detailPersona.perspectiveTags.length) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">Perspective Tags</div>
+                <div className="mt-1 flex flex-wrap gap-1">
+                  {detailPersona.perspectiveTags.map(tag => (
+                    <span key={tag} className="rounded bg-blue-900/30 px-2 py-0.5 text-[11px] text-blue-300 border border-blue-700/30">{tag}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {!!(detailPersona.ntTypology && detailPersona.ntTypology.trim()) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">新約預表論</div>
+                <div className="mt-1 text-xs whitespace-pre-line text-zinc-400">{detailPersona.ntTypology}</div>
+              </div>
+            )}
+            {!!(detailPersona.otTheology && detailPersona.otTheology.trim()) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">舊約神學視角</div>
+                <div className="mt-1 text-xs whitespace-pre-line text-zinc-400">{detailPersona.otTheology}</div>
+              </div>
+            )}
+            {!!(detailPersona.ntDialogue && detailPersona.ntDialogue.trim()) && (
+              <div className="mt-3">
+                <div className="text-xs uppercase text-zinc-500">新約對話點</div>
+                <div className="mt-1 text-xs whitespace-pre-line text-zinc-400">{detailPersona.ntDialogue}</div>
               </div>
             )}
           </div>

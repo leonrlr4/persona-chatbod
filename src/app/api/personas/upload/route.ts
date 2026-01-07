@@ -65,11 +65,29 @@ export async function POST(req: Request) {
       const r: Record<string, string> = {}; headers.forEach((h, idx) => { r[h] = String(values[idx] || ""); }); return r;
     });
 
-    const docs: Array<{ id: string; name: string; story: string; traits: string[]; beliefs: string[]; tags: string[]; embedding: number[]; ownerUserId: string; visibility: "private"; created_at: Date; updated_at: Date }> = [];
+    const docs: Array<{
+      id: string;
+      name: string;
+      story: string;
+      traits: string[];
+      beliefs: string[];
+      tags: string[];
+      ntTypology?: string;
+      otTheology?: string;
+      ntDialogue?: string;
+      perspectiveTags?: string[];
+      embedding: number[];
+      ownerUserId: string;
+      visibility: "private";
+      created_at: Date;
+      updated_at: Date;
+    }> = [];
+
     for (const r of records) {
       const id = String(r["人物ID"] || r["id"] || "").trim();
       const name = String(r["人物名稱"] || r["name"] || "").trim();
       if (!id || !name) continue;
+
       const refs = String(r["所屬故事/經卷"] || "").trim();
       const desc = String(r["人物特徵描述"] || "").trim();
       const behaviors = String(r["典型行為模式與案例"] || "").trim();
@@ -77,11 +95,48 @@ export async function POST(req: Request) {
       const responses = String(r["人物如何回應困境"] || "").trim();
       const lessons = String(r["生命教訓或屬靈啟示"] || "").trim();
       const tags = extractHashtags(String(r["適用場景標籤"] || ""));
+
+      // 新增的四個欄位
+      const ntTypology = String(r["新約預表論"] || "").trim();
+      const otTheology = String(r["舊約神學視角"] || "").trim();
+      const ntDialogue = String(r["新約對話點"] || "").trim();
+      const perspectiveTags = String(r["人物視角標籤"] || "").trim();
+
       const story = [desc, refs, behaviors, challenges, responses, lessons].filter(Boolean).join("\n\n");
       const traits: string[] = extractTraits(r);
       const beliefs: string[] = String(r["主要價值觀與信念"] || "").split(/\n+/).map(s => s.trim()).filter(Boolean).slice(0, 20);
-      const emb = await embedText([name, story, traits.join(" "), beliefs.join(" ")].join("\n"));
-      docs.push({ id, name, story, traits, beliefs, tags, embedding: emb, ownerUserId: session.userId, visibility: "private", created_at: new Date(), updated_at: new Date() });
+
+      // 將新欄位加入 embedding 計算（提升搜尋相關性）
+      const embeddingText = [
+        name,
+        story,
+        traits.join(" "),
+        beliefs.join(" "),
+        ntTypology,
+        otTheology,
+        ntDialogue,
+        perspectiveTags.join(" ")
+      ].filter(Boolean).join("\n");
+
+      const emb = await embedText(embeddingText);
+
+      docs.push({
+        id,
+        name,
+        story,
+        traits,
+        beliefs,
+        tags,
+        ntTypology: ntTypology || undefined,
+        otTheology: otTheology || undefined,
+        ntDialogue: ntDialogue || undefined,
+        perspectiveTags: perspectiveTags.length > 0 ? perspectiveTags : undefined,
+        embedding: emb,
+        ownerUserId: session.userId,
+        visibility: "private",
+        created_at: new Date(),
+        updated_at: new Date()
+      });
     }
 
     if (docs.length === 0) return NextResponse.json({ ok: false, error: "無有效資料" }, { status: 400 });

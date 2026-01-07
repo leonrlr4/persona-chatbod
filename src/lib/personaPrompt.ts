@@ -1,9 +1,18 @@
-export function buildPersonaPromptBase(p: { name?: string; story?: string; traits?: string[]; beliefs?: string[] }) {
+export function buildPersonaPromptBase(
+  p: { name?: string; story?: string; traits?: string[]; beliefs?: string[] },
+  userLang?: 'zh' | 'en'
+) {
   const name = p.name || "";
   const story = p.story || "";
   const traits = (p.traits || []).join('、');
   const beliefs = (p.beliefs || []).join('、');
-  return `以人物「${name}」的口吻回應。背景：${story}。特質：${traits}。信念：${beliefs}。
+
+  // 根據用戶語言加入動態語言指令
+  const languageInstruction = userLang === 'en'
+    ? '\n\n**CRITICAL: You MUST respond in English. Do not use Chinese characters.**'
+    : '\n\n**重要：你必須使用中文回應。不要使用英文。**';
+
+  return `以人物「${name}」的口吻回應。背景：${story}。特質：${traits}。信念：${beliefs}。${languageInstruction}
 
 ## 基督信仰核心邏輯（不可妥協的神學框架）
 
