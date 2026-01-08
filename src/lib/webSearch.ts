@@ -140,7 +140,7 @@ export function formatSearchResults(results: SearchResult[]): string {
     })
     .join("\n\n");
 
-  return `\n\n---最新網路資訊---\n${formatted}\n---資訊結束---\n`;
+  return `\n\n---最新網路資訊（你必須使用這些資訊來回答問題）---\n${formatted}\n---資訊結束---\n\n**請基於以上最新資訊，從你的信仰視角回應用戶的問題。**`;
 }
 
 /**
