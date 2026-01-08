@@ -25,7 +25,8 @@
       "WebSearch",
       "Bash(ssh bible-persona:*)",
       "Bash(npm install:*)",
-      "Bash(pnpm install:*)"
+      "Bash(pnpm install:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []

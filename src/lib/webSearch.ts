@@ -10,6 +10,60 @@ export interface SearchResult {
 }
 
 /**
+ * 使用 Tavily Search API 進行搜尋
+ * 專為 LLM 設計的搜尋引擎
+ */
+async function searchTavily(query: string, maxResults: number = 3): Promise<SearchResult[]> {
+  const apiKey = process.env.TAVILY_API_KEY;
+
+  if (!apiKey) {
+    console.warn("websearch_tavily_api_key_missing", { message: "TAVILY_API_KEY not found in environment variables" });
+    throw new Error("TAVILY_API_KEY not configured");
+  }
+
+  const url = "https://api.tavily.com/search";
+
+  console.log("websearch_tavily_start", { query, maxResults });
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      api_key: apiKey,
+      query: query,
+      max_results: maxResults,
+      search_depth: "basic",
+      include_answer: false,
+      include_images: false,
+      include_raw_content: false,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("websearch_tavily_error", {
+      status: response.status,
+      statusText: response.statusText,
+      error: errorText
+    });
+    throw new Error(`Tavily API error: ${response.status} ${response.statusText}`);
+  }
+
+  const data = await response.json();
+  console.log("websearch_tavily_success", { resultsCount: data.results?.length || 0 });
+
+  const results: SearchResult[] = (data.results || []).map((r: any) => ({
+    title: r.title || "",
+    description: r.content || "",
+    url: r.url || "",
+  }));
+
+  return results;
+}
+
+/**
  * 使用 Brave Search API 進行搜尋
  * 免費額度：2,000 次/月
  */
@@ -94,32 +148,46 @@ async function searchDuckDuckGo(query: string, maxResults: number = 3): Promise<
 export async function webSearch(query: string, maxResults: number = 3): Promise<SearchResult[]> {
   console.log("websearch_smart_start", { query, maxResults });
 
-  // 策略 1: 優先使用 Brave Search API
+  // 策略 1: 優先使用 Tavily Search API
   try {
-    const results = await searchBrave(query, maxResults);
-    console.log("websearch_smart_used_brave", { resultsCount: results.length });
+    const results = await searchTavily(query, maxResults);
+    console.log("websearch_smart_used_tavily", { resultsCount: results.length });
     return results;
-  } catch (braveError) {
-    const msg = braveError instanceof Error ? braveError.message : String(braveError);
-    console.warn("websearch_smart_brave_failed", {
+  } catch (tavilyError) {
+    const msg = tavilyError instanceof Error ? tavilyError.message : String(tavilyError);
+    console.warn("websearch_smart_tavily_failed", {
       message: msg,
-      fallbackTo: "DuckDuckGo"
+      fallbackTo: "Brave"
     });
 
-    // 策略 2: 備用 DuckDuckGo（完全免費）
+    // 策略 2: 備用 Brave Search API
     try {
-      const results = await searchDuckDuckGo(query, maxResults);
-      console.log("websearch_smart_used_ddg", { resultsCount: results.length });
+      const results = await searchBrave(query, maxResults);
+      console.log("websearch_smart_used_brave", { resultsCount: results.length });
       return results;
-    } catch (ddgError) {
-      const ddgMsg = ddgError instanceof Error ? ddgError.message : String(ddgError);
-      console.error("websearch_smart_all_failed", {
-        braveError: msg,
-        ddgError: ddgMsg
+    } catch (braveError) {
+      const braveMsg = braveError instanceof Error ? braveError.message : String(braveError);
+      console.warn("websearch_smart_brave_failed", {
+        message: braveMsg,
+        fallbackTo: "DuckDuckGo"
       });
 
-      // 兩個都失敗時返回空陣列
-      return [];
+      // 策略 3: 備用 DuckDuckGo（完全免費）
+      try {
+        const results = await searchDuckDuckGo(query, maxResults);
+        console.log("websearch_smart_used_ddg", { resultsCount: results.length });
+        return results;
+      } catch (ddgError) {
+        const ddgMsg = ddgError instanceof Error ? ddgError.message : String(ddgError);
+        console.error("websearch_smart_all_failed", {
+          tavilyError: msg,
+          braveError: braveMsg,
+          ddgError: ddgMsg
+        });
+
+        // 全部失敗時返回空陣列
+        return [];
+      }
     }
   }
 }

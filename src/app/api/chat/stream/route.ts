@@ -178,6 +178,7 @@ export async function POST(req: Request) {
     let savedConversationId = conversationId;
     async function* makeIterator() {
       try {
+        console.log(`${systemPrompt}\n${userText}`)
         const stream = await llm.stream(`${systemPrompt}\n${userText}`);
         console.log("chat_stream_llm_stream_started");
         const iterable = stream as unknown as AsyncIterable<unknown>;
@@ -195,7 +196,54 @@ export async function POST(req: Request) {
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error("chat_stream_llm_stream_error", { message: msg });
-        throw err;
+
+        // 🛡️ 內容風險檢測與優雅降級
+        // 當 DeepSeek 檢測到敏感內容時（如政治敏感話題），自動重試但移除網路搜尋結果
+        if ((msg.includes('Content Exists Risk') || msg.includes('content_filter')) && webSearchContext) {
+          console.warn("content_risk_detected_retry", {
+            error: msg,
+            action: "removing_search_context_and_retry"
+          });
+
+          // 重建不含搜尋結果的系統提示
+          let cleanSystemPrompt = systemPrompt.replace(webSearchContext, '');
+          if (ragContext) {
+            cleanSystemPrompt = cleanSystemPrompt.replace(ragContext, '');
+          }
+
+          // 添加用戶通知（透明原則）
+          const userNotice = userLang === 'en'
+            ? "\n\n[System Notice: Due to content restrictions, this response could not use the latest web information, but I will answer based on biblical wisdom and historical knowledge.]\n\n"
+            : "\n\n[系統提示：由於內容限制，本次回應未能使用最新網路資訊，但我會基於聖經智慧和歷史知識來回答您的問題。]\n\n";
+
+          yield encoder.encode(userNotice);
+          fullResponse += userNotice;
+
+          try {
+            // 重新嘗試流式生成（不含搜尋結果）
+            const retryStream = await llm.stream(`${cleanSystemPrompt}\n${userText}`);
+            console.log("content_risk_retry_stream_started");
+
+            const retryIterable = retryStream as unknown as AsyncIterable<unknown>;
+            for await (const chunk of retryIterable) {
+              const c = (chunk as { content?: unknown })?.content ?? "";
+              const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((v: unknown) => (typeof v === "string" ? v : String((v as { text?: string })?.text || ""))).join("") : "";
+              if (text) {
+                fullResponse += text;
+                yield encoder.encode(text);
+              }
+            }
+
+            console.log("content_risk_retry_success");
+            return; // 成功完成，退出
+          } catch (retryErr: unknown) {
+            const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            console.error("content_risk_retry_failed", { message: retryMsg });
+            // 重試失敗，繼續拋出原始錯誤
+          }
+        }
+
+        throw err; // 如果無法處理或重試失敗，拋出原始錯誤
       }
     }
     const iter = makeIterator();
