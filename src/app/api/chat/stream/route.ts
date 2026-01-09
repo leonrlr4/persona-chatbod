@@ -178,7 +178,7 @@ export async function POST(req: Request) {
     let savedConversationId = conversationId;
     async function* makeIterator() {
       try {
-        console.log(`${systemPrompt}\n${userText}`)
+        // console.log(`${systemPrompt}\n${userText}`)
         const stream = await llm.stream(`${systemPrompt}\n${userText}`);
         console.log("chat_stream_llm_stream_started");
         const iterable = stream as unknown as AsyncIterable<unknown>;
