@@ -12,10 +12,11 @@
     "@langchain/core": "^0.3.18",
     "@langchain/deepseek": "^0.1.0",
     "bcryptjs": "^3.0.3",
+    "duck-duck-scrape": "^2.2.7",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.469.0",
     "mongodb": "^6.10.0",
-    "next": "^14",
+    "next": "16.1.1",
     "openai": "^4.57.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -28,8 +29,8 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
-    "eslint": "^8.57.0",
-    "eslint-config-next": "^14",
+    "eslint": "^9",
+    "eslint-config-next": "16.1.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

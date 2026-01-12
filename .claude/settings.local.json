@@ -23,7 +23,10 @@
       "Bash(git commit:*)",
       "WebFetch(domain:vercel.com)",
       "WebSearch",
-      "Bash(ssh bible-persona:*)"
+      "Bash(ssh bible-persona:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm install:*)",
+      "Bash(npx tsc:*)"
     ],
     "deny": [],
     "ask": []
