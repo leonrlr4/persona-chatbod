@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDb } from "@/lib/mongo";
-import { ChatDeepSeek } from "@langchain/deepseek";
+import OpenAI from "openai";
 import { verifySession } from "@/lib/session";
 import { embedText } from "@/lib/embeddings";
 import { buildPersonaPromptBase } from "@/lib/personaPrompt";
@@ -125,30 +125,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "請先選擇人物" }, { status: 400 });
     }
 
-    const key = process.env.DEEPSEEK_API_KEY || "";
+    const key = process.env.OPENAI_API_KEY || "";
     if (!key) {
       console.error("chat_stream_env_missing", { keyPresent: !!key });
-      return NextResponse.json({ ok: false, error: "DEEPSEEK_API_KEY missing" }, { status: 500 });
+      return NextResponse.json({ ok: false, error: "OPENAI_API_KEY missing" }, { status: 500 });
     }
-    const model = process.env.DEEPSEEK_MODEL || "deepseek-chat";
+    const model = process.env.CHAT_MODEL || "gpt-4o-mini";
     console.log("chat_stream_llm_init", { model, temperature: 0.7 });
-    const llm = new ChatDeepSeek({ apiKey: key, model, temperature: 0.7 });
+    const client = new OpenAI({ apiKey: key });
 
     const encoder = new TextEncoder();
     let fullResponse = "";
     let savedConversationId = conversationId;
     async function* makeIterator() {
       try {
-        const stream = await llm.stream(`${systemPrompt}\n${userText}`);
+        const stream = await client.chat.completions.create({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userText },
+          ],
+          temperature: 0.7,
+          stream: true,
+        });
         console.log("chat_stream_llm_stream_started");
-        const iterable = stream as unknown as AsyncIterable<unknown>;
-        for await (const chunk of iterable) {
-          const c = (chunk as { content?: unknown })?.content ?? "";
-          const text = typeof c === "string" ? c : Array.isArray(c) ? c.map((v: unknown) => (typeof v === "string" ? v : String((v as { text?: string })?.text || ""))).join("") : "";
-          if (text) {
-            console.log("chat_stream_chunk", { len: text.length, preview: text.slice(0, 50) });
-            fullResponse += text;
-            yield encoder.encode(text);
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content || "";
+          if (delta) {
+            console.log("chat_stream_chunk", { len: delta.length, preview: delta.slice(0, 50) });
+            fullResponse += delta;
+            yield encoder.encode(delta);
           } else {
             console.log("chat_stream_chunk_empty");
           }

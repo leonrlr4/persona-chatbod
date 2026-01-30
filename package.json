@@ -9,8 +9,6 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@langchain/core": "^0.3.18",
-    "@langchain/deepseek": "^0.1.0",
     "bcryptjs": "^3.0.3",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.469.0",
